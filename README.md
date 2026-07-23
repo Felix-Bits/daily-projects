@@ -7,4 +7,5 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-07-23 — Conway's Game of Life](2026-07-23-game-of-life/) — single-page HTML canvas simulation with play/pause, speed control, and click-to-draw
 <!-- PROJECT_LIST_END -->

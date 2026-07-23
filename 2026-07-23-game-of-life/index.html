@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Conway's Game of Life</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 24px 12px;
+    background: #12141a;
+    color: #e6e6e6;
+    font-family: system-ui, sans-serif;
+  }
+  h1 { font-size: 1.2rem; font-weight: 600; margin: 0; }
+  #board {
+    background: #1c1f27;
+    border: 1px solid #333844;
+    image-rendering: pixelated;
+    cursor: pointer;
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  button {
+    background: #2a2f3a;
+    color: #e6e6e6;
+    border: 1px solid #3d4352;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  button:hover { background: #363c49; }
+  label { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
+  input[type="range"] { width: 140px; }
+  #gen { font-variant-numeric: tabular-nums; opacity: 0.8; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+  <h1>Conway's Game of Life</h1>
+  <canvas id="board"></canvas>
+  <div class="controls">
+    <button id="toggle">Play</button>
+    <button id="step">Step</button>
+    <button id="clear">Clear</button>
+    <button id="random">Random</button>
+    <label>Speed <input id="speed" type="range" min="1" max="30" value="10"></label>
+    <span id="gen">Generation: 0</span>
+  </div>
+
+<script>
+const COLS = 80, ROWS = 50, CELL = 10;
+const canvas = document.getElementById('board');
+canvas.width = COLS * CELL;
+canvas.height = ROWS * CELL;
+const ctx = canvas.getContext('2d');
+
+let grid = makeGrid();
+let running = false;
+let generation = 0;
+let lastTick = 0;
+let fps = 10;
+
+function makeGrid() {
+  return new Uint8Array(COLS * ROWS);
+}
+
+function idx(x, y) { return y * COLS + x; }
+
+function randomize() {
+  for (let i = 0; i < grid.length; i++) grid[i] = Math.random() < 0.25 ? 1 : 0;
+  generation = 0;
+  draw();
+}
+
+function countNeighbors(x, y) {
+  let count = 0;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = (x + dx + COLS) % COLS;
+      const ny = (y + dy + ROWS) % ROWS;
+      count += grid[idx(nx, ny)];
+    }
+  }
+  return count;
+}
+
+function step() {
+  const next = makeGrid();
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const alive = grid[idx(x, y)];
+      const n = countNeighbors(x, y);
+      next[idx(x, y)] = alive ? (n === 2 || n === 3 ? 1 : 0) : (n === 3 ? 1 : 0);
+    }
+  }
+  grid = next;
+  generation++;
+  draw();
+}
+
+function draw() {
+  ctx.fillStyle = '#1c1f27';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#5ec2ff';
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (grid[idx(x, y)]) ctx.fillRect(x * CELL, y * CELL, CELL - 1, CELL - 1);
+    }
+  }
+  document.getElementById('gen').textContent = `Generation: ${generation}`;
+}
+
+function loop(ts) {
+  if (running) {
+    const interval = 1000 / fps;
+    if (ts - lastTick >= interval) {
+      lastTick = ts;
+      step();
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.floor((e.clientX - rect.left) / CELL);
+  const y = Math.floor((e.clientY - rect.top) / CELL);
+  grid[idx(x, y)] = grid[idx(x, y)] ? 0 : 1;
+  draw();
+});
+
+const toggleBtn = document.getElementById('toggle');
+toggleBtn.addEventListener('click', () => {
+  running = !running;
+  toggleBtn.textContent = running ? 'Pause' : 'Play';
+});
+
+document.getElementById('step').addEventListener('click', step);
+document.getElementById('clear').addEventListener('click', () => {
+  grid = makeGrid();
+  generation = 0;
+  running = false;
+  toggleBtn.textContent = 'Play';
+  draw();
+});
+document.getElementById('random').addEventListener('click', randomize);
+document.getElementById('speed').addEventListener('input', (e) => {
+  fps = Number(e.target.value);
+});
+
+randomize();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
