@@ -1,0 +1,9 @@
+{
+  "name": "widget",
+  "version": "1.2.0",
+  "tags": ["stable", "core"],
+  "config": {
+    "retries": 3,
+    "timeout": 30
+  }
+}
