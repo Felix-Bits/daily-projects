@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Huffman Tree Visualizer</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171e2e;
+    --border: #2a3349;
+    --text: #e7ecf5;
+    --dim: #8a93a8;
+    --accent: #ffb454;
+    --accent2: #62d9ff;
+    --leaf: #4fd18c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'SF Mono', 'Consolas', 'Menlo', monospace;
+    line-height: 1.4;
+  }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin-bottom: 20px; font-size: 0.85rem; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+  }
+  label { display: block; margin-bottom: 6px; color: var(--dim); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  textarea {
+    width: 100%;
+    min-height: 70px;
+    background: #0c1119;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    font-family: inherit;
+    font-size: 0.95rem;
+    resize: vertical;
+  }
+  .controls { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+  button {
+    background: var(--accent);
+    color: #1a1206;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  button.secondary { background: transparent; color: var(--accent2); border: 1px solid var(--accent2); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .speed { color: var(--dim); font-size: 0.8rem; display: flex; align-items: center; gap: 6px; }
+
+  .forest { display: flex; flex-wrap: wrap; gap: 10px; min-height: 70px; align-items: flex-end; }
+  .chip {
+    background: #10182a;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    text-align: center;
+    min-width: 54px;
+    transition: transform 0.35s ease, opacity 0.35s ease, background 0.25s ease, border-color 0.25s ease;
+  }
+  .chip .freq { font-size: 1rem; font-weight: 700; color: var(--accent2); }
+  .chip.leaf .freq { color: var(--leaf); }
+  .chip .chars { font-size: 0.7rem; color: var(--dim); margin-top: 2px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip.merging { border-color: var(--accent); background: #241a0c; transform: translateY(-6px) scale(1.06); }
+  .chip.leaving { opacity: 0; transform: translateY(10px) scale(0.7); }
+  .chip.entering { animation: pop 0.35s ease; }
+  @keyframes pop { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
+
+  #status { color: var(--dim); font-size: 0.8rem; margin-top: 10px; }
+
+  svg { width: 100%; height: auto; display: block; }
+  .node circle { fill: #10182a; stroke: var(--border); stroke-width: 1.5; }
+  .node.leaf circle { stroke: var(--leaf); }
+  .node text { fill: var(--text); font-size: 11px; font-family: inherit; text-anchor: middle; dominant-baseline: middle; }
+  .node .freqtext { fill: var(--dim); font-size: 9px; }
+  .edge { stroke: var(--border); stroke-width: 1.5; }
+  .edge-label { fill: var(--accent2); font-size: 10px; text-anchor: middle; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 4px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--dim); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; }
+  code { color: var(--accent2); }
+  .stat { display: inline-block; margin-right: 24px; margin-bottom: 6px; }
+  .stat .val { font-size: 1.2rem; font-weight: 700; color: var(--accent); }
+  .stat .lbl { color: var(--dim); font-size: 0.75rem; display: block; }
+  .bits { word-break: break-all; font-size: 0.7rem; color: var(--dim); background: #0c1119; padding: 8px; border-radius: 6px; max-height: 90px; overflow: auto; }
+</style>
+</head>
+<body>
+
+<h1>Huffman Tree Visualizer</h1>
+<div class="sub">Type text, watch the Huffman coding tree build itself one merge at a time, then see the actual bit codes it produces.</div>
+
+<div class="panel">
+  <label for="input">Input text</label>
+  <textarea id="input">the quick brown fox jumps over the lazy dog</textarea>
+  <div class="controls">
+    <button id="buildBtn">Build tree</button>
+    <button id="playBtn" class="secondary" disabled>Play</button>
+    <button id="stepBtn" class="secondary" disabled>Step</button>
+    <div class="speed">
+      speed
+      <input type="range" id="speed" min="200" max="1600" value="700" step="100">
+    </div>
+  </div>
+  <div id="status">Enter text and click "Build tree" to start.</div>
+</div>
+
+<div class="panel">
+  <label>Merging forest (lowest two frequencies combine each step)</label>
+  <div class="forest" id="forest"></div>
+</div>
+
+<div class="panel" id="treePanel" style="display:none">
+  <label>Final tree — left edge = 0, right edge = 1</label>
+  <svg id="treeSvg" viewBox="0 0 100 100"></svg>
+</div>
+
+<div class="panel" id="resultsPanel" style="display:none">
+  <label>Codes &amp; compression</label>
+  <div id="stats"></div>
+  <table id="codeTable">
+    <thead><tr><th>char</th><th>freq</th><th>code</th><th>bits</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <label style="margin-top:14px">Encoded bitstream (first 2000 bits)</label>
+  <div class="bits" id="bitPreview"></div>
+</div>
+
+<script>
+(() => {
+  const input = document.getElementById('input');
+  const buildBtn = document.getElementById('buildBtn');
+  const playBtn = document.getElementById('playBtn');
+  const stepBtn = document.getElementById('stepBtn');
+  const speedSlider = document.getElementById('speed');
+  const status = document.getElementById('status');
+  const forestEl = document.getElementById('forest');
+  const treePanel = document.getElementById('treePanel');
+  const treeSvg = document.getElementById('treeSvg');
+  const resultsPanel = document.getElementById('resultsPanel');
+  const statsEl = document.getElementById('stats');
+  const codeTableBody = document.querySelector('#codeTable tbody');
+  const bitPreview = document.getElementById('bitPreview');
+
+  let nextId = 0;
+  let forest = [];       // current live forest of node objects
+  let steps = [];        // full merge history, computed up front
+  let stepIndex = 0;
+  let playing = false;
+  let playTimer = null;
+  let root = null;
+
+  function displayChar(c) {
+    if (c === ' ') return '␣';
+    if (c === '\n') return '\\n';
+    if (c === '\t') return '\\t';
+    return c;
+  }
+
+  function buildFrequencies(text) {
+    const freq = new Map();
+    for (const ch of text) freq.set(ch, (freq.get(ch) || 0) + 1);
+    return freq;
+  }
+
+  function computeMergeHistory(freqMap) {
+    nextId = 0;
+    const initial = [...freqMap.entries()].map(([ch, f]) => ({
+      id: nextId++, freq: f, char: ch, chars: ch, isLeaf: true, left: null, right: null
+    }));
+    const work = initial.slice();
+    const history = [];
+
+    if (work.length === 1) {
+      // single distinct character: force a synthetic sibling so it still gets a real code
+      const only = work[0];
+      const dummy = { id: nextId++, freq: 0, char: null, chars: '', isLeaf: true, left: null, right: null, synthetic: true };
+      const parent = { id: nextId++, freq: only.freq, char: null, chars: only.chars, isLeaf: false, left: only, right: dummy };
+      history.push({ a: only.id, b: dummy.id, newNode: parent });
+      return { initial, history, root: parent };
+    }
+
+    while (work.length > 1) {
+      work.sort((a, b) => a.freq - b.freq || a.id - b.id);
+      const a = work.shift();
+      const b = work.shift();
+      const parent = {
+        id: nextId++, freq: a.freq + b.freq, char: null,
+        chars: (a.chars + b.chars), isLeaf: false, left: a, right: b
+      };
+      history.push({ a: a.id, b: b.id, newNode: parent });
+      work.push(parent);
+    }
+    return { initial, history, root: work[0] };
+  }
+
+  function renderForest() {
+    forestEl.innerHTML = '';
+    const sorted = forest.slice().sort((a, b) => a.freq - b.freq || a.id - b.id);
+    for (const node of sorted) {
+      const chip = document.createElement('div');
+      chip.className = 'chip' + (node.isLeaf ? ' leaf' : '') + (node._merging ? ' merging' : '') + (node._entering ? ' entering' : '');
+      chip.dataset.id = node.id;
+      const freqDiv = document.createElement('div');
+      freqDiv.className = 'freq';
+      freqDiv.textContent = node.freq;
+      const charsDiv = document.createElement('div');
+      charsDiv.className = 'chars';
+      const label = node.isLeaf ? displayChar(node.char) : [...node.chars].map(displayChar).join('');
+      charsDiv.textContent = label || '∅';
+      charsDiv.title = label;
+      chip.appendChild(freqDiv);
+      chip.appendChild(charsDiv);
+      forestEl.appendChild(chip);
+    }
+  }
+
+  function doStep() {
+    if (stepIndex >= steps.length) return finish();
+    const { a, b, newNode } = steps[stepIndex];
+    const nodeA = forest.find(n => n.id === a);
+    const nodeB = forest.find(n => n.id === b);
+    if (nodeA) nodeA._merging = true;
+    if (nodeB) nodeB._merging = true;
+    renderForest();
+    status.textContent = `Step ${stepIndex + 1} / ${steps.length}: merging freq ${nodeA ? nodeA.freq : 0} + ${nodeB ? nodeB.freq : 0} = ${newNode.freq}`;
+
+    setTimeout(() => {
+      forest = forest.filter(n => n.id !== a && n.id !== b);
+      newNode._entering = true;
+      forest.push(newNode);
+      renderForest();
+      setTimeout(() => { newNode._entering = false; }, 400);
+      stepIndex++;
+      if (stepIndex >= steps.length) finish();
+    }, Math.max(250, Number(speedSlider.value) * 0.55));
+  }
+
+  function finish() {
+    stopPlaying();
+    playBtn.disabled = true;
+    stepBtn.disabled = true;
+    status.textContent = 'Done — tree complete.';
+    drawTree();
+    computeCodesAndStats();
+  }
+
+  function stopPlaying() {
+    playing = false;
+    playBtn.textContent = 'Play';
+    if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  }
+
+  function togglePlay() {
+    if (playing) { stopPlaying(); return; }
+    playing = true;
+    playBtn.textContent = 'Pause';
+    const tick = () => {
+      if (stepIndex >= steps.length) { finish(); return; }
+      doStep();
+    };
+    tick();
+    playTimer = setInterval(tick, Number(speedSlider.value));
+  }
+
+  // ---- final tree layout & drawing ----
+  function drawTree() {
+    treePanel.style.display = 'block';
+    const leaves = [];
+    (function collectLeaves(n) {
+      if (!n) return;
+      if (n.left === null && n.right === null) { leaves.push(n); return; }
+      collectLeaves(n.left);
+      collectLeaves(n.right);
+    })(root);
+
+    const spacingX = 46;
+    const spacingY = 60;
+    let cursor = 0;
+    const pos = new Map();
+    let maxDepth = 0;
+
+    (function layout(n, depth) {
+      if (!n) return;
+      maxDepth = Math.max(maxDepth, depth);
+      if (n.left === null && n.right === null) {
+        pos.set(n, { x: cursor * spacingX + spacingX, y: depth * spacingY + 30 });
+        cursor++;
+        return;
+      }
+      layout(n.left, depth + 1);
+      layout(n.right, depth + 1);
+      const lx = pos.get(n.left).x;
+      const rx = pos.get(n.right).x;
+      pos.set(n, { x: (lx + rx) / 2, y: depth * spacingY + 30 });
+    })(root, 0);
+
+    const width = Math.max(leaves.length * spacingX + spacingX, 200);
+    const height = (maxDepth + 1) * spacingY + 30;
+    treeSvg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    treeSvg.innerHTML = '';
+
+    const ns = 'http://www.w3.org/2000/svg';
+    function el(tag, attrs) {
+      const e = document.createElementNS(ns, tag);
+      for (const k in attrs) e.setAttribute(k, attrs[k]);
+      return e;
+    }
+
+    (function drawEdges(n) {
+      if (!n || (n.left === null && n.right === null)) return;
+      const p = pos.get(n);
+      for (const [child, bit] of [[n.left, '0'], [n.right, '1']]) {
+        if (!child) continue;
+        const c = pos.get(child);
+        treeSvg.appendChild(el('line', { class: 'edge', x1: p.x, y1: p.y, x2: c.x, y2: c.y }));
+        const midx = (p.x + c.x) / 2, midy = (p.y + c.y) / 2;
+        const label = el('text', { class: 'edge-label', x: midx + (bit === '0' ? -8 : 8), y: midy });
+        label.textContent = bit;
+        treeSvg.appendChild(label);
+        drawEdges(child);
+      }
+    })(root);
+
+    (function drawNodes(n) {
+      if (!n) return;
+      const p = pos.get(n);
+      const isLeaf = n.left === null && n.right === null;
+      const g = el('g', { class: 'node' + (isLeaf ? ' leaf' : '') });
+      g.appendChild(el('circle', { cx: p.x, cy: p.y, r: isLeaf ? 14 : 11 }));
+      const t = el('text', { x: p.x, y: p.y - (isLeaf ? 2 : 1) });
+      t.textContent = isLeaf ? (n.synthetic ? '-' : displayChar(n.char)) : '';
+      g.appendChild(t);
+      const f = el('text', { class: 'freqtext', x: p.x, y: p.y + (isLeaf ? 10 : 9) });
+      f.textContent = n.freq;
+      g.appendChild(f);
+      treeSvg.appendChild(g);
+      drawNodes(n.left);
+      drawNodes(n.right);
+    })(root);
+  }
+
+  function computeCodesAndStats() {
+    resultsPanel.style.display = 'block';
+    const codes = new Map();
+    (function walk(n, prefix) {
+      if (!n) return;
+      if (n.left === null && n.right === null) {
+        if (!n.synthetic) codes.set(n.char, prefix || '0');
+        return;
+      }
+      walk(n.left, prefix + '0');
+      walk(n.right, prefix + '1');
+    })(root, '');
+
+    const text = input.value;
+    const freqMap = buildFrequencies(text);
+    const rows = [...freqMap.entries()].sort((a, b) => b[1] - a[1]);
+
+    codeTableBody.innerHTML = '';
+    let compressedBits = 0;
+    for (const [ch, f] of rows) {
+      const code = codes.get(ch) || '';
+      compressedBits += code.length * f;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${displayChar(ch)}</td><td>${f}</td><td><code>${code}</code></td><td>${code.length}</td>`;
+      codeTableBody.appendChild(tr);
+    }
+
+    const totalChars = [...text].length;
+    const originalBits = totalChars * 8;
+    const ratio = originalBits > 0 ? (100 * (1 - compressedBits / originalBits)).toFixed(1) : '0';
+
+    statsEl.innerHTML = `
+      <div class="stat"><span class="val">${totalChars}</span><span class="lbl">characters</span></div>
+      <div class="stat"><span class="val">${originalBits}</span><span class="lbl">bits as ASCII (8/char)</span></div>
+      <div class="stat"><span class="val">${compressedBits}</span><span class="lbl">bits huffman-encoded</span></div>
+      <div class="stat"><span class="val">${ratio}%</span><span class="lbl">smaller</span></div>
+    `;
+
+    let bitstream = '';
+    for (const ch of text) {
+      bitstream += codes.get(ch) || '';
+      if (bitstream.length > 2000) break;
+    }
+    bitPreview.textContent = bitstream.slice(0, 2000) + (bitstream.length > 2000 || [...text].length !== rows.reduce((s,[,f])=>s+f,0) ? ' …' : '');
+  }
+
+  function build() {
+    const text = input.value;
+    if (!text) { status.textContent = 'Type something first.'; return; }
+    stopPlaying();
+    resultsPanel.style.display = 'none';
+    treePanel.style.display = 'none';
+
+    const freqMap = buildFrequencies(text);
+    const result = computeMergeHistory(freqMap);
+    forest = result.initial;
+    steps = result.history;
+    root = result.root;
+    stepIndex = 0;
+
+    renderForest();
+    playBtn.disabled = false;
+    stepBtn.disabled = false;
+    status.textContent = `Ready — ${forest.length} distinct characters, ${steps.length} merge${steps.length === 1 ? '' : 's'} to go.`;
+  }
+
+  buildBtn.addEventListener('click', build);
+  playBtn.addEventListener('click', togglePlay);
+  stepBtn.addEventListener('click', () => { if (!playing) doStep(); });
+
+  build();
+})();
+</script>
+
+</body>
+</html>
