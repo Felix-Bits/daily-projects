@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-07-29 — Terminal Boids](2026-07-29-terminal-boids/) — live ANSI-colored flocking simulation in the terminal, pure-stdlib Python
 - [2026-07-28 — Huffman Tree Visualizer](2026-07-28-huffman-visualizer/) — single-page animated Huffman coding tree builder with live code table and compression stats
 - [2026-07-27 — JSON Diff CLI](2026-07-27-jsondiff-cli/) — recursive, colorized JSON diff tool in pure-stdlib Python
 - [2026-07-27 — ANSI Mandelbrot Zoom](2026-07-27-ansi-mandelbrot/) — terminal Mandelbrot renderer in pure-stdlib Python with 24-bit color zoom animation
