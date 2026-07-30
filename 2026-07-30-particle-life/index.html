@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Particle Life</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #0a0a0f;
+    color: #ddd;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+  header {
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: #12121a;
+    border-bottom: 1px solid #2a2a3a;
+  }
+  h1 { font-size: 15px; margin: 0; font-weight: 600; color: #eee; }
+  button {
+    background: #23233a;
+    color: #eee;
+    border: 1px solid #3a3a55;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:hover { background: #2e2e4a; }
+  label { font-size: 12px; color: #aaa; display: flex; align-items: center; gap: 6px; }
+  #stage { position: relative; flex: 1; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #matrix {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: #12121aee;
+    border: 1px solid #2a2a3a;
+    border-radius: 8px;
+    padding: 8px;
+    font-size: 10px;
+  }
+  #matrix table { border-collapse: collapse; }
+  #matrix td, #matrix th {
+    width: 22px; height: 22px;
+    text-align: center;
+    font-size: 9px;
+  }
+  #matrix .cell { border-radius: 3px; }
+  #hint {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    font-size: 11px;
+    color: #888;
+    max-width: 320px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Particle Life</h1>
+  <button id="randomize">Randomize rules</button>
+  <button id="reset">Reset particles</button>
+  <button id="pause">Pause</button>
+  <label>Particles per type <input id="count" type="range" min="30" max="200" value="120"></label>
+  <label>Friction <input id="friction" type="range" min="0" max="90" value="35"></label>
+</header>
+<div id="stage">
+  <canvas id="c"></canvas>
+  <div id="matrix"></div>
+  <div id="hint">Each colored species pulls or pushes every other species by a random amount. No central rule says "flock" or "hunt" — but clusters, orbits, chases, and membranes emerge anyway. Click "Randomize rules" for a new species of universe.</div>
+</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const stage = document.getElementById('stage');
+
+const TYPES = 6;
+const COLORS = ['#ff5c5c', '#5cff8a', '#5ca8ff', '#ffe45c', '#ff5cf0', '#5cffe4'];
+const RMAX = 80;      // interaction radius in px
+const BETA = 0.28;    // repulsion core fraction of RMAX
+const FORCE_SCALE = 900;
+
+let W, H;
+function resize() {
+  W = canvas.width = stage.clientWidth;
+  H = canvas.height = stage.clientHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+let matrix = [];
+function randomizeMatrix() {
+  matrix = Array.from({length: TYPES}, () =>
+    Array.from({length: TYPES}, () => Math.random() * 2 - 1)
+  );
+  drawMatrixUI();
+}
+
+let particles = [];
+function resetParticles() {
+  const perType = parseInt(document.getElementById('count').value, 10);
+  particles = [];
+  for (let t = 0; t < TYPES; t++) {
+    for (let i = 0; i < perType; i++) {
+      particles.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        vx: 0, vy: 0,
+        type: t
+      });
+    }
+  }
+}
+
+// force(d) for d in [0,1] as a fraction of RMAX: repulsive core, then attraction/repulsion by matrix, tapering to 0
+function forceFn(d, a) {
+  if (d < BETA) return d / BETA - 1;
+  if (d < 1) return a * (1 - Math.abs(2 * d - 1 - BETA) / (1 - BETA));
+  return 0;
+}
+
+function step(frictionFactor) {
+  const rmax2 = RMAX * RMAX;
+  for (const p of particles) { p.fx = 0; p.fy = 0; }
+
+  for (let i = 0; i < particles.length; i++) {
+    const p = particles[i];
+    for (let j = i + 1; j < particles.length; j++) {
+      const q = particles[j];
+      let dx = q.x - p.x;
+      let dy = q.y - p.y;
+      // wrap distance for a toroidal world
+      if (dx > W / 2) dx -= W; else if (dx < -W / 2) dx += W;
+      if (dy > H / 2) dy -= H; else if (dy < -H / 2) dy += H;
+      const dist2 = dx * dx + dy * dy;
+      if (dist2 > rmax2 || dist2 < 0.0001) continue;
+      const dist = Math.sqrt(dist2);
+      const d = dist / RMAX;
+      const ux = dx / dist, uy = dy / dist;
+
+      const fpq = forceFn(d, matrix[p.type][q.type]);
+      const fqp = forceFn(d, matrix[q.type][p.type]);
+
+      p.fx += ux * fpq; p.fy += uy * fpq;
+      q.fx -= ux * fqp; q.fy -= uy * fqp;
+    }
+  }
+
+  for (const p of particles) {
+    p.vx = (p.vx + p.fx * FORCE_SCALE * DT) * frictionFactor;
+    p.vy = (p.vy + p.fy * FORCE_SCALE * DT) * frictionFactor;
+    p.x += p.vx * DT;
+    p.y += p.vy * DT;
+    if (p.x < 0) p.x += W; else if (p.x >= W) p.x -= W;
+    if (p.y < 0) p.y += H; else if (p.y >= H) p.y -= H;
+  }
+}
+
+const DT = 1 / 60;
+
+function render() {
+  ctx.fillStyle = 'rgba(10,10,15,0.35)';
+  ctx.fillRect(0, 0, W, H);
+  for (const p of particles) {
+    ctx.fillStyle = COLORS[p.type];
+    ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+  }
+}
+
+function drawMatrixUI() {
+  const el = document.getElementById('matrix');
+  let html = '<table><tr><th></th>';
+  for (let j = 0; j < TYPES; j++) html += `<th><div class="cell" style="background:${COLORS[j]};width:14px;height:14px;margin:auto;"></div></th>`;
+  html += '</tr>';
+  for (let i = 0; i < TYPES; i++) {
+    html += `<tr><th><div class="cell" style="background:${COLORS[i]};width:14px;height:14px;margin:auto;"></div></th>`;
+    for (let j = 0; j < TYPES; j++) {
+      const v = matrix[i][j];
+      const intensity = Math.round(Math.abs(v) * 200);
+      const bg = v > 0 ? `rgba(80,220,120,${Math.abs(v)})` : `rgba(220,80,80,${Math.abs(v)})`;
+      html += `<td class="cell" style="background:${bg}">${v.toFixed(1)}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</table>';
+  el.innerHTML = html;
+}
+
+let running = true;
+function loop() {
+  if (running) {
+    const frictionSlider = parseInt(document.getElementById('friction').value, 10);
+    const frictionFactor = 1 - frictionSlider / 100;
+    step(frictionFactor);
+    render();
+  }
+  requestAnimationFrame(loop);
+}
+
+document.getElementById('randomize').addEventListener('click', () => { randomizeMatrix(); });
+document.getElementById('reset').addEventListener('click', () => { resetParticles(); });
+document.getElementById('pause').addEventListener('click', (e) => {
+  running = !running;
+  e.target.textContent = running ? 'Pause' : 'Resume';
+});
+
+randomizeMatrix();
+resetParticles();
+loop();
+</script>
+</body>
+</html>
