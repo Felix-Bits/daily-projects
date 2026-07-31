@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-07-31 — Bloom Filter Playground](2026-07-31-bloom-filter-playground/) — interactive bit-array visualization of a Bloom filter that catches live false positives as you test words
 - [2026-07-30 — Particle Life](2026-07-30-particle-life/) — canvas simulation where a random attraction matrix between colored particle species produces emergent clusters, orbits, and chases
 - [2026-07-29 — Terminal Boids](2026-07-29-terminal-boids/) — live ANSI-colored flocking simulation in the terminal, pure-stdlib Python
 - [2026-07-28 — Huffman Tree Visualizer](2026-07-28-huffman-visualizer/) — single-page animated Huffman coding tree builder with live code table and compression stats

@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Bloom Filter Playground</title>
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #0f1220;
+    color: #e8e8f0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px 64px;
+  }
+  h1 { margin: 0 0 4px; font-size: 1.6rem; }
+  p.sub { margin: 0 0 24px; color: #9a9ab5; max-width: 640px; text-align: center; font-size: 0.95rem; }
+
+  .panel {
+    background: #171a2e;
+    border: 1px solid #2a2e4a;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    width: 100%;
+    max-width: 760px;
+  }
+
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  input[type=text] {
+    flex: 1;
+    min-width: 160px;
+    background: #0f1220;
+    border: 1px solid #33375a;
+    color: #e8e8f0;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+  }
+  input[type=text]:focus { outline: none; border-color: #6c7bff; }
+  button {
+    background: #3d47ff;
+    color: white;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button:hover { background: #4f58ff; }
+  button.secondary { background: #2a2e4a; }
+  button.secondary:hover { background: #383c5e; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .config-row label { font-size: 0.85rem; color: #b6b6cc; margin-right: 6px; }
+  .config-row select {
+    background: #0f1220; color: #e8e8f0; border: 1px solid #33375a;
+    border-radius: 6px; padding: 5px 8px; margin-right: 18px;
+  }
+
+  #bits {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(20px, 1fr));
+    gap: 4px;
+    margin-top: 16px;
+  }
+  .bit {
+    aspect-ratio: 1;
+    border-radius: 4px;
+    background: #22253d;
+    border: 1px solid #2f3352;
+    transition: background 0.25s, transform 0.25s, box-shadow 0.25s;
+  }
+  .bit.set { background: #3d47ff; box-shadow: 0 0 8px #3d47ffaa; }
+  .bit.flash { transform: scale(1.35); background: #ffd23d; box-shadow: 0 0 12px #ffd23dcc; }
+  .bit.flash-hit { transform: scale(1.35); background: #4ade80; box-shadow: 0 0 12px #4ade80cc; }
+  .bit.flash-miss { transform: scale(1.35); background: #ef4444; box-shadow: 0 0 12px #ef4444cc; }
+
+  #result {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 0.92rem;
+    display: none;
+    line-height: 1.5;
+  }
+  #result.show { display: block; }
+  #result.miss { background: #2a1414; border: 1px solid #6b2a2a; color: #ff9a9a; }
+  #result.hit-true { background: #142a1c; border: 1px solid #2a6b3d; color: #9affc0; }
+  #result.hit-false { background: #2a2414; border: 1px solid #6b5a2a; color: #ffd88a; }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-top: 4px;
+  }
+  .stat {
+    background: #0f1220;
+    border: 1px solid #262a48;
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .stat .label { font-size: 0.72rem; color: #8f8fae; text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat .value { font-size: 1.25rem; font-weight: 700; margin-top: 2px; }
+  .stat .value.warn { color: #ffb84d; }
+
+  #words {
+    margin-top: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .chip {
+    background: #22253d;
+    border: 1px solid #33375a;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    color: #c8c8e0;
+  }
+
+  footer { color: #6a6a86; font-size: 0.8rem; margin-top: 8px; text-align: center; max-width: 640px; }
+  code { background: #22253d; padding: 1px 5px; border-radius: 4px; font-size: 0.85em; }
+</style>
+</head>
+<body>
+
+<h1>🌸 Bloom Filter Playground</h1>
+<p class="sub">
+  Add words and watch bits light up in a shared array. Then test a word: if it says
+  <strong>"possibly in the set"</strong> but you never added it, you've just caught a live
+  <strong>false positive</strong> — the defining trade-off of a Bloom filter.
+</p>
+
+<div class="panel">
+  <div class="row config-row">
+    <label>Bit array size (m)</label>
+    <select id="mSelect">
+      <option value="64">64</option>
+      <option value="128" selected>128</option>
+      <option value="256">256</option>
+    </select>
+    <label>Hash functions (k)</label>
+    <select id="kSelect">
+      <option value="2">2</option>
+      <option value="3" selected>3</option>
+      <option value="5">5</option>
+      <option value="8">8</option>
+    </select>
+    <button class="secondary" id="resetBtn">Reset filter</button>
+  </div>
+
+  <div class="row">
+    <input type="text" id="wordInput" placeholder="type a word…" autocomplete="off">
+    <button id="addBtn">Add to filter</button>
+    <button class="secondary" id="testBtn">Test membership</button>
+  </div>
+
+  <div id="result"></div>
+
+  <div id="bits"></div>
+
+  <div id="words"></div>
+</div>
+
+<div class="panel">
+  <div class="stats">
+    <div class="stat"><div class="label">Words added</div><div class="value" id="statN">0</div></div>
+    <div class="stat"><div class="label">Bits set / total</div><div class="value" id="statBits">0 / 128</div></div>
+    <div class="stat"><div class="label">Fill ratio</div><div class="value" id="statFill">0%</div></div>
+    <div class="stat"><div class="label">Theoretical FP rate</div><div class="value" id="statFP">0%</div></div>
+    <div class="stat"><div class="label">Empirical FP rate</div><div class="value" id="statEmp">— (test some words)</div></div>
+  </div>
+</div>
+
+<footer>
+  A Bloom filter never says "definitely in the set" — only "definitely not" or "possibly, maybe."
+  It never produces false negatives, only false positives, and the rate climbs as more bits fill up.
+  Theoretical formula: (1 &minus; e<sup>&minus;kn/m</sup>)<sup>k</sup> for n items, m bits, k hashes.
+</footer>
+
+<script>
+(function () {
+  let m = parseInt(document.getElementById('mSelect').value, 10);
+  let k = parseInt(document.getElementById('kSelect').value, 10);
+  let bits = new Uint8Array(m);
+  let added = new Set();       // ground-truth set of words actually added, for demo purposes
+  let empTests = 0, empFalsePos = 0;
+
+  const bitsEl = document.getElementById('bits');
+  const wordsEl = document.getElementById('words');
+  const resultEl = document.getElementById('result');
+  const wordInput = document.getElementById('wordInput');
+
+  // Two independent 32-bit hash bases; combined via double hashing to simulate k
+  // distinct hash functions from just two (Kirsch-Mitzenmacher technique).
+  function hash32(str, seed) {
+    let h = seed >>> 0;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+      h ^= h >>> 15;
+    }
+    return h >>> 0;
+  }
+
+  function indicesFor(word) {
+    const h1 = hash32(word, 2166136261);
+    const h2 = hash32(word, 0x9e3779b9) || 1; // avoid degenerate 0 step
+    const idx = [];
+    for (let i = 0; i < k; i++) {
+      idx.push((h1 + i * h2) % m);
+    }
+    return idx;
+  }
+
+  function renderBits() {
+    bitsEl.innerHTML = '';
+    for (let i = 0; i < m; i++) {
+      const d = document.createElement('div');
+      d.className = 'bit' + (bits[i] ? ' set' : '');
+      d.dataset.i = i;
+      bitsEl.appendChild(d);
+    }
+  }
+
+  function flashBits(idxList, cls, duration) {
+    idxList.forEach(i => {
+      const el = bitsEl.children[i];
+      if (!el) return;
+      el.classList.add(cls);
+      setTimeout(() => el.classList.remove(cls), duration);
+    });
+  }
+
+  function renderWords() {
+    wordsEl.innerHTML = '';
+    [...added].forEach(w => {
+      const c = document.createElement('span');
+      c.className = 'chip';
+      c.textContent = w;
+      wordsEl.appendChild(c);
+    });
+  }
+
+  function updateStats() {
+    const n = added.size;
+    const setCount = bits.reduce((a, b) => a + b, 0);
+    document.getElementById('statN').textContent = n;
+    document.getElementById('statBits').textContent = `${setCount} / ${m}`;
+    document.getElementById('statFill').textContent = `${((setCount / m) * 100).toFixed(1)}%`;
+
+    const theoretical = n === 0 ? 0 : Math.pow(1 - Math.exp(-k * n / m), k);
+    const fpEl = document.getElementById('statFP');
+    fpEl.textContent = `${(theoretical * 100).toFixed(2)}%`;
+    fpEl.classList.toggle('warn', theoretical > 0.15);
+
+    const empEl = document.getElementById('statEmp');
+    if (empTests === 0) {
+      empEl.textContent = '— (test some words)';
+      empEl.classList.remove('warn');
+    } else {
+      const rate = empFalsePos / empTests;
+      empEl.textContent = `${(rate * 100).toFixed(1)}% (${empFalsePos}/${empTests})`;
+      empEl.classList.toggle('warn', rate > 0.15);
+    }
+  }
+
+  function showResult(cls, html) {
+    resultEl.className = 'show ' + cls;
+    resultEl.innerHTML = html;
+  }
+
+  function addWord(word) {
+    if (!word) return;
+    const idx = indicesFor(word);
+    idx.forEach(i => { bits[i] = 1; });
+    added.add(word);
+    renderBits();
+    flashBits(idx, 'flash', 500);
+    // re-apply 'set' class after flash removal since renderBits already set it
+    renderWords();
+    updateStats();
+    showResult('hit-true', `Added <strong>"${escapeHtml(word)}"</strong> — set bits [${idx.join(', ')}]`);
+  }
+
+  function testWord(word) {
+    if (!word) return;
+    const idx = indicesFor(word);
+    const allSet = idx.every(i => bits[i] === 1);
+    const actuallyIn = added.has(word);
+
+    empTests++;
+    if (!allSet) {
+      flashBits(idx, 'flash-miss', 700);
+      showResult('miss', `<strong>"${escapeHtml(word)}"</strong> is <strong>definitely NOT</strong> in the set — bit [${idx.find(i => bits[i] === 0)}] was never set.`);
+    } else {
+      flashBits(idx, 'flash-hit', 700);
+      if (actuallyIn) {
+        showResult('hit-true', `<strong>"${escapeHtml(word)}"</strong> is <strong>possibly in the set</strong> — and it's actually a true positive, you did add it.`);
+      } else {
+        empFalsePos++;
+        showResult('hit-false', `<strong>"${escapeHtml(word)}"</strong> is reported as <strong>possibly in the set</strong> — but you never added it! That's a live false positive, caused by hash collisions with other words on bits [${idx.join(', ')}].`);
+      }
+    }
+    updateStats();
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function reset() {
+    m = parseInt(document.getElementById('mSelect').value, 10);
+    k = parseInt(document.getElementById('kSelect').value, 10);
+    bits = new Uint8Array(m);
+    added = new Set();
+    empTests = 0; empFalsePos = 0;
+    resultEl.className = '';
+    resultEl.innerHTML = '';
+    renderBits();
+    renderWords();
+    updateStats();
+  }
+
+  document.getElementById('addBtn').addEventListener('click', () => {
+    addWord(wordInput.value.trim());
+    wordInput.value = '';
+    wordInput.focus();
+  });
+  document.getElementById('testBtn').addEventListener('click', () => {
+    testWord(wordInput.value.trim());
+    wordInput.value = '';
+    wordInput.focus();
+  });
+  wordInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('addBtn').click();
+  });
+  document.getElementById('resetBtn').addEventListener('click', reset);
+  document.getElementById('mSelect').addEventListener('change', reset);
+  document.getElementById('kSelect').addEventListener('change', reset);
+
+  reset();
+
+  // seed with a few words so the playground isn't empty on load
+  ['apple', 'banana', 'cherry'].forEach(w => addWord(w));
+  resultEl.className = '';
+  resultEl.innerHTML = '';
+})();
+</script>
+
+</body>
+</html>
