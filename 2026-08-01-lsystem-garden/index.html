@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>L-System Garden</title>
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #0b0f0c;
+    color: #d7e8d9;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    overflow: hidden;
+  }
+  #canvas {
+    display: block;
+    background: radial-gradient(circle at 50% 20%, #10160f 0%, #06090a 100%);
+  }
+  #panel {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    background: rgba(10, 16, 12, 0.85);
+    border: 1px solid #2a3a2c;
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 13px;
+    max-width: 260px;
+    backdrop-filter: blur(4px);
+  }
+  #panel h1 {
+    font-size: 15px;
+    margin: 0 0 10px;
+    color: #9fe6a0;
+  }
+  #panel label {
+    display: block;
+    margin-top: 10px;
+    color: #9db89f;
+  }
+  #panel select, #panel input[type="range"] {
+    width: 100%;
+    margin-top: 3px;
+  }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #6f8a72;
+  }
+  .buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  button {
+    flex: 1;
+    background: #1b2a1c;
+    color: #cdf0ce;
+    border: 1px solid #375339;
+    border-radius: 6px;
+    padding: 6px 8px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  button:hover {
+    background: #24391f;
+  }
+  #stats {
+    margin-top: 10px;
+    font-size: 11px;
+    color: #6f8a72;
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="panel">
+  <h1>&#127807; L-System Garden</h1>
+  <label>Preset
+    <select id="preset"></select>
+  </label>
+  <label>Iterations <span id="iterVal"></span>
+    <input type="range" id="iterations" min="1" max="8" step="1">
+  </label>
+  <label>Angle <span id="angleVal"></span>&deg;
+    <input type="range" id="angle" min="1" max="180" step="0.5">
+  </label>
+  <label>Growth speed
+    <input type="range" id="speed" min="1" max="200" step="1" value="40">
+  </label>
+  <div class="buttons">
+    <button id="grow">Grow</button>
+    <button id="randomize">Mutate</button>
+  </div>
+  <div id="stats"></div>
+</div>
+<script>
+const PRESETS = {
+  "Fractal Plant": {
+    axiom: "X",
+    rules: { X: "F+[[X]-X]-F[-FX]+X", F: "FF" },
+    angle: 25,
+    iterations: 5,
+    heading: -90,
+    lenFactor: 1,
+    hueStart: 95, hueEnd: 140,
+  },
+  "Koch Snowflake": {
+    axiom: "F--F--F",
+    rules: { F: "F+F--F+F" },
+    angle: 60,
+    iterations: 4,
+    heading: 0,
+    lenFactor: 1,
+    hueStart: 190, hueEnd: 260,
+  },
+  "Sierpinski Arrowhead": {
+    axiom: "A",
+    rules: { A: "B-A-B", B: "A+B+A" },
+    drawChars: { A: true, B: true },
+    angle: 60,
+    iterations: 6,
+    heading: 0,
+    lenFactor: 1,
+    hueStart: 20, hueEnd: 50,
+  },
+  "Dragon Curve": {
+    axiom: "FX",
+    rules: { X: "X+YF+", Y: "-FX-Y" },
+    angle: 90,
+    iterations: 11,
+    heading: 0,
+    lenFactor: 1,
+    hueStart: 280, hueEnd: 330,
+  },
+  "Levy C Curve": {
+    axiom: "F",
+    rules: { F: "+F--F+" },
+    angle: 45,
+    iterations: 12,
+    heading: 0,
+    lenFactor: 1,
+    hueStart: 150, hueEnd: 200,
+  },
+};
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const presetSel = document.getElementById("preset");
+const iterInput = document.getElementById("iterations");
+const angleInput = document.getElementById("angle");
+const speedInput = document.getElementById("speed");
+const iterVal = document.getElementById("iterVal");
+const angleVal = document.getElementById("angleVal");
+const statsEl = document.getElementById("stats");
+
+let current = null;
+let segments = [];
+let drawIndex = 0;
+let animHandle = null;
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", () => { resize(); startGrowth(); });
+resize();
+
+for (const name of Object.keys(PRESETS)) {
+  const opt = document.createElement("option");
+  opt.value = name;
+  opt.textContent = name;
+  presetSel.appendChild(opt);
+}
+
+function generate(axiom, rules, iterations) {
+  let s = axiom;
+  for (let i = 0; i < iterations; i++) {
+    let next = "";
+    for (const c of s) next += rules[c] || c;
+    s = next;
+  }
+  return s;
+}
+
+function buildSegments(preset, angleDeg, iterations) {
+  const drawChars = preset.drawChars || { F: true };
+  const str = generate(preset.axiom, preset.rules, iterations);
+  const angleRad = (angleDeg * Math.PI) / 180;
+  let x = 0, y = 0, heading = (preset.heading * Math.PI) / 180;
+  const stack = [];
+  const segs = [];
+  const stepLen = 8;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  const maxDepthSeen = { v: 0 };
+
+  for (const c of str) {
+    if (drawChars[c]) {
+      const nx = x + stepLen * Math.cos(heading);
+      const ny = y + stepLen * Math.sin(heading);
+      segs.push({ x1: x, y1: y, x2: nx, y2: ny, depth: stack.length });
+      maxDepthSeen.v = Math.max(maxDepthSeen.v, stack.length);
+      x = nx; y = ny;
+      minX = Math.min(minX, x, nx); maxX = Math.max(maxX, x, nx);
+      minY = Math.min(minY, y, ny); maxY = Math.max(maxY, y, ny);
+    } else if (c === "f") {
+      x += stepLen * Math.cos(heading);
+      y += stepLen * Math.sin(heading);
+    } else if (c === "+") {
+      heading += angleRad;
+    } else if (c === "-") {
+      heading -= angleRad;
+    } else if (c === "[") {
+      stack.push({ x, y, heading });
+    } else if (c === "]") {
+      const s = stack.pop();
+      if (s) { x = s.x; y = s.y; heading = s.heading; }
+    }
+  }
+
+  if (!isFinite(minX)) { minX = 0; maxX = 1; minY = 0; maxY = 1; }
+  return { segs, bounds: { minX, maxX, minY, maxY }, maxDepth: maxDepthSeen.v || 1, symbolCount: str.length };
+}
+
+function fitTransform(bounds) {
+  const w = canvas.width, h = canvas.height;
+  const pad = 40;
+  const bw = Math.max(bounds.maxX - bounds.minX, 1e-6);
+  const bh = Math.max(bounds.maxY - bounds.minY, 1e-6);
+  const scale = Math.min((w - pad * 2) / bw, (h - pad * 2) / bh);
+  const cx = (bounds.minX + bounds.maxX) / 2;
+  const cy = (bounds.minY + bounds.maxY) / 2;
+  return { scale, offX: w / 2 - cx * scale, offY: h / 2 - cy * scale };
+}
+
+function startGrowth() {
+  if (animHandle) cancelAnimationFrame(animHandle);
+  const name = presetSel.value;
+  const preset = PRESETS[name];
+  const angle = parseFloat(angleInput.value);
+  const iterations = parseInt(iterInput.value, 10);
+  const built = buildSegments(preset, angle, iterations);
+  const tf = fitTransform(built.bounds);
+  segments = built.segs.map((s) => ({
+    x1: s.x1 * tf.scale + tf.offX,
+    y1: s.y1 * tf.scale + tf.offY,
+    x2: s.x2 * tf.scale + tf.offX,
+    y2: s.y2 * tf.scale + tf.offY,
+    depth: s.depth,
+  }));
+  current = { name, preset, maxDepth: built.maxDepth };
+  drawIndex = 0;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  statsEl.textContent = `${segments.length} segments · ${built.symbolCount} symbols`;
+  animate();
+}
+
+function animate() {
+  const perFrame = Math.max(1, parseInt(speedInput.value, 10));
+  const preset = current.preset;
+  for (let n = 0; n < perFrame && drawIndex < segments.length; n++, drawIndex++) {
+    const s = segments[drawIndex];
+    const t = current.maxDepth > 0 ? s.depth / current.maxDepth : 0;
+    const hue = preset.hueStart + (preset.hueEnd - preset.hueStart) * t;
+    ctx.strokeStyle = `hsl(${hue}, 70%, ${60 - t * 15}%)`;
+    ctx.lineWidth = Math.max(0.6, 2.2 - t * 1.6);
+    ctx.beginPath();
+    ctx.moveTo(s.x1, s.y1);
+    ctx.lineTo(s.x2, s.y2);
+    ctx.stroke();
+  }
+  if (drawIndex < segments.length) {
+    animHandle = requestAnimationFrame(animate);
+  }
+}
+
+function applyPresetDefaults(name) {
+  const preset = PRESETS[name];
+  iterInput.max = preset.iterations;
+  iterInput.min = 1;
+  iterInput.value = preset.iterations;
+  angleInput.value = preset.angle;
+  iterVal.textContent = iterInput.value;
+  angleVal.textContent = angleInput.value;
+}
+
+presetSel.addEventListener("change", () => {
+  applyPresetDefaults(presetSel.value);
+  startGrowth();
+});
+iterInput.addEventListener("input", () => { iterVal.textContent = iterInput.value; startGrowth(); });
+angleInput.addEventListener("input", () => { angleVal.textContent = angleInput.value; startGrowth(); });
+document.getElementById("grow").addEventListener("click", startGrowth);
+document.getElementById("randomize").addEventListener("click", () => {
+  const preset = PRESETS[presetSel.value];
+  const jitter = (preset.angle * (0.5 + Math.random())) | 0 || 1;
+  angleInput.value = Math.max(1, Math.min(180, jitter));
+  angleVal.textContent = angleInput.value;
+  startGrowth();
+});
+
+presetSel.value = "Fractal Plant";
+applyPresetDefaults(presetSel.value);
+startGrowth();
+</script>
+</body>
+</html>
