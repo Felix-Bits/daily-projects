@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-08-03 — Chladni Sand](2026-08-03-chladni-sand/) — canvas cymatics toy where 6000 grains random-walk under a vibrating-plate equation and settle into classic Chladni nodal-line figures
 - [2026-08-02 — Diamond-Square Islands](2026-08-02-diamond-square-islands/) — terminal island generator using recursive midpoint-displacement, with an animated build-up from blocky guess to detailed coastline
 - [2026-08-01 — L-System Garden](2026-08-01-lsystem-garden/) — canvas fractal grower where five string-rewriting grammars (plant, Koch snowflake, Sierpinski arrowhead, dragon curve, Lévy C curve) turn into turtle-graphics shapes before your eyes
 - [2026-07-31 — Bloom Filter Playground](2026-07-31-bloom-filter-playground/) — interactive bit-array visualization of a Bloom filter that catches live false positives as you test words
