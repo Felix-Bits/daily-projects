@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-08-05 — Nim (XOR Strategy)](2026-08-05-nim-xor/) — one-page interactive Nim game against an unbeatable AI, with a live binary nim-sum panel showing exactly why each position is won or lost
 - [2026-08-04 — Reaction-Diffusion Lab](2026-08-04-reaction-diffusion/) — canvas Gray-Scott simulation where two diffusing, reacting chemicals turn into coral, mitosis-like blobs, worms, or spots depending only on two feed/kill numbers
 - [2026-08-03 — Chladni Sand](2026-08-03-chladni-sand/) — canvas cymatics toy where 6000 grains random-walk under a vibrating-plate equation and settle into classic Chladni nodal-line figures
 - [2026-08-02 — Diamond-Square Islands](2026-08-02-diamond-square-islands/) — terminal island generator using recursive midpoint-displacement, with an animated build-up from blocky guess to detailed coastline

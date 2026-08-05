@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Nim — The Game You (Probably) Can't Win</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel2: #1e2229;
+    --border: #2a2f3a;
+    --text: #e6e8ec;
+    --dim: #8a8f9c;
+    --accent: #5fd0c9;
+    --danger: #e0645a;
+    --safe: #7ed491;
+    --stone: #dfe3ea;
+    --stone-shadow: #9098a6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(circle at 50% -10%, #1b1f27, var(--bg) 60%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px 64px;
+  }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  .subtitle { color: var(--dim); margin: 0 0 28px; text-align: center; max-width: 560px; font-size: 0.95rem; }
+
+  .board {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+    width: min(560px, 92vw);
+  }
+  .pile {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--panel2);
+    transition: outline 0.15s ease;
+  }
+  .pile.active-target { outline: 2px solid var(--accent); }
+  .pile-label { width: 26px; color: var(--dim); font-variant-numeric: tabular-nums; font-size: 0.85rem; }
+  .stones {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1;
+  }
+  .stone {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, var(--stone), var(--stone-shadow));
+    cursor: pointer;
+    transition: transform 0.12s ease, opacity 0.3s ease, box-shadow 0.12s ease;
+  }
+  .stone:hover { transform: scale(1.15); }
+  .stone.selected { box-shadow: 0 0 0 3px var(--accent); transform: scale(1.1); }
+  .stone.locked { cursor: default; opacity: 0.35; }
+  .stone.locked:hover { transform: none; }
+
+  .controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 18px;
+    width: min(560px, 92vw);
+  }
+  button {
+    font: inherit;
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel2);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  #takeBtn { background: var(--accent); color: #0b1512; font-weight: 600; border: none; }
+  #newGameBtn { margin-left: auto; }
+
+  .status {
+    margin-top: 16px;
+    min-height: 24px;
+    font-size: 0.95rem;
+    text-align: center;
+  }
+
+  .xor-panel {
+    margin-top: 26px;
+    width: min(560px, 92vw);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 22px;
+  }
+  .xor-panel h2 { font-size: 0.95rem; margin: 0 0 4px; color: var(--dim); font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
+  .xor-panel p.explain { color: var(--dim); font-size: 0.85rem; margin: 4px 0 14px; line-height: 1.5; }
+  table.xor-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  table.xor-table td { text-align: center; padding: 3px 6px; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.95rem; }
+  table.xor-table td.label { text-align: right; color: var(--dim); font-family: inherit; padding-right: 10px; }
+  table.xor-table tr.xor-row td { border-top: 1px solid var(--border); padding-top: 8px; font-weight: 700; }
+  .verdict {
+    margin-top: 14px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .verdict.safe { background: rgba(126, 212, 145, 0.12); color: var(--safe); }
+  .verdict.danger { background: rgba(224, 100, 90, 0.12); color: var(--danger); }
+
+  footer { margin-top: 30px; color: var(--dim); font-size: 0.8rem; text-align: center; max-width: 560px; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>Nim</h1>
+<p class="subtitle">Three piles of stones. Take any number (at least one) from a single pile on your turn. Whoever takes the <em>last</em> stone wins. You go first — good luck.</p>
+
+<div class="board" id="board"></div>
+
+<div class="controls">
+  <button id="takeBtn" disabled>Take selected stones</button>
+  <button id="clearBtn">Clear selection</button>
+  <button id="newGameBtn">New game</button>
+</div>
+
+<div class="status" id="status"></div>
+
+<div class="xor-panel">
+  <h2>The trick, laid bare</h2>
+  <p class="explain">Write each pile's size in binary and XOR them together (a "nim-sum"). If the result is <strong>000</strong>, whoever moves next is in a losing position against perfect play — every move breaks the balance, and the opponent can always restore it. Watch this update as you play.</p>
+  <table class="xor-table" id="xorTable"></table>
+  <div class="verdict" id="verdict"></div>
+</div>
+
+<footer>
+  No randomness in the AI's decisions once it's your move — only in how the piles start. If the nim-sum is already 0 when the game begins, the AI wins outright no matter what you do. If it starts nonzero, <em>you</em> hold a winning line — but you have to find it every single turn, and the AI never will let you back in once you slip.
+</footer>
+
+<script>
+(function () {
+  const boardEl = document.getElementById('board');
+  const statusEl = document.getElementById('status');
+  const xorTableEl = document.getElementById('xorTable');
+  const verdictEl = document.getElementById('verdict');
+  const takeBtn = document.getElementById('takeBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const newGameBtn = document.getElementById('newGameBtn');
+
+  let piles = [];
+  let selection = null; // { pileIndex, count }
+  let locked = false;   // input disabled during AI turn / game over
+  let gameOver = false;
+
+  function randomPiles() {
+    const n = 3;
+    const arr = [];
+    for (let i = 0; i < n; i++) arr.push(3 + Math.floor(Math.random() * 5)); // 3..7
+    return arr;
+  }
+
+  function nimSum(arr) {
+    return arr.reduce((a, b) => a ^ b, 0);
+  }
+
+  function bitWidth(arr) {
+    const max = Math.max(...arr, 1);
+    return Math.max(3, Math.ceil(Math.log2(max + 1)));
+  }
+
+  function toBinary(n, width) {
+    return n.toString(2).padStart(width, '0');
+  }
+
+  function render() {
+    // Board
+    boardEl.innerHTML = '';
+    piles.forEach((count, pileIdx) => {
+      const pileEl = document.createElement('div');
+      pileEl.className = 'pile';
+      if (selection && selection.pileIndex === pileIdx) pileEl.classList.add('active-target');
+
+      const label = document.createElement('div');
+      label.className = 'pile-label';
+      label.textContent = 'P' + (pileIdx + 1);
+      pileEl.appendChild(label);
+
+      const stonesEl = document.createElement('div');
+      stonesEl.className = 'stones';
+      for (let i = 0; i < count; i++) {
+        const stone = document.createElement('div');
+        stone.className = 'stone';
+        if (locked || gameOver) stone.classList.add('locked');
+        if (selection && selection.pileIndex === pileIdx && i < selection.count) {
+          stone.classList.add('selected');
+        }
+        stone.addEventListener('click', () => onStoneClick(pileIdx, i));
+        stonesEl.appendChild(stone);
+      }
+      pileEl.appendChild(stonesEl);
+      boardEl.appendChild(pileEl);
+    });
+
+    takeBtn.disabled = !selection || locked || gameOver;
+
+    // XOR panel
+    const width = bitWidth(piles);
+    xorTableEl.innerHTML = '';
+    piles.forEach((count, i) => {
+      const row = document.createElement('tr');
+      const labelTd = document.createElement('td');
+      labelTd.className = 'label';
+      labelTd.textContent = 'P' + (i + 1) + ' = ' + count;
+      row.appendChild(labelTd);
+      const binTd = document.createElement('td');
+      binTd.textContent = toBinary(count, width);
+      row.appendChild(binTd);
+      xorTableEl.appendChild(row);
+    });
+    const sum = nimSum(piles);
+    const sumRow = document.createElement('tr');
+    sumRow.className = 'xor-row';
+    const sumLabel = document.createElement('td');
+    sumLabel.className = 'label';
+    sumLabel.textContent = 'nim-sum';
+    sumRow.appendChild(sumLabel);
+    const sumVal = document.createElement('td');
+    sumVal.textContent = toBinary(sum, width);
+    sumRow.appendChild(sumVal);
+    xorTableEl.appendChild(sumRow);
+
+    if (!gameOver) {
+      if (sum === 0) {
+        verdictEl.className = 'verdict danger';
+        verdictEl.textContent = 'nim-sum is 0 — the player to move is in the losing position.';
+      } else {
+        verdictEl.className = 'verdict safe';
+        verdictEl.textContent = 'nim-sum is nonzero — the player to move has a winning move available.';
+      }
+    }
+  }
+
+  function onStoneClick(pileIdx, index) {
+    if (locked || gameOver) return;
+    // clicking a stone selects it and every stone to its left (a contiguous run from the pile's start)
+    if (!selection || selection.pileIndex !== pileIdx) {
+      selection = { pileIndex: pileIdx, count: index + 1 };
+    } else {
+      selection.count = index + 1;
+    }
+    render();
+  }
+
+  function setStatus(text) {
+    statusEl.textContent = text;
+  }
+
+  function checkGameEnd(afterWhom) {
+    if (piles.every(p => p === 0)) {
+      gameOver = true;
+      setStatus(afterWhom === 'player' ? 'You took the last stone — you win!' : 'The AI took the last stone — it wins.');
+      return true;
+    }
+    return false;
+  }
+
+  function playerTake() {
+    if (!selection || locked || gameOver) return;
+    piles[selection.pileIndex] -= selection.count;
+    selection = null;
+    render();
+    if (checkGameEnd('player')) return;
+    locked = true;
+    setStatus("AI is thinking...");
+    render();
+    setTimeout(aiTurn, 550);
+  }
+
+  function aiTurn() {
+    const sum = nimSum(piles);
+    let move = null; // { pileIndex, newCount }
+
+    if (sum !== 0) {
+      // find a pile where reducing it flips the nim-sum to 0
+      for (let i = 0; i < piles.length; i++) {
+        const target = piles[i] ^ sum;
+        if (target < piles[i]) {
+          move = { pileIndex: i, newCount: target };
+          break;
+        }
+      }
+    }
+    if (!move) {
+      // already losing (or degenerate) position: take one stone from the largest nonempty pile
+      let idx = -1, best = -1;
+      piles.forEach((c, i) => { if (c > best) { best = c; idx = i; } });
+      move = { pileIndex: idx, newCount: Math.max(0, piles[idx] - 1) };
+    }
+
+    const taken = piles[move.pileIndex] - move.newCount;
+    piles[move.pileIndex] = move.newCount;
+    locked = false;
+    setStatus('AI took ' + taken + ' from pile P' + (move.pileIndex + 1) + '.');
+    render();
+    checkGameEnd('ai');
+  }
+
+  takeBtn.addEventListener('click', playerTake);
+  clearBtn.addEventListener('click', () => { selection = null; render(); });
+  newGameBtn.addEventListener('click', startGame);
+
+  function startGame() {
+    piles = randomPiles();
+    selection = null;
+    locked = false;
+    gameOver = false;
+    setStatus('Your move — click stones in a pile, then Take.');
+    render();
+  }
+
+  startGame();
+})();
+</script>
+
+</body>
+</html>
