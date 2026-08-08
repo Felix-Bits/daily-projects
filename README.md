@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-08-08 — WFC Pipe Weaver](2026-08-08-wfc-pipes/) — canvas Wave Function Collapse toy that weaves a fully-connected pipe network cell by cell, watching constraint propagation ripple outward from each collapse
 - [2026-08-07 — Brainfuck Theater](2026-08-07-brainfuck-theater/) — animated terminal visualizer for a Brainfuck interpreter, showing the tape, pointer, and source instruction pointer step in lockstep as Hello World (or a counting loop) executes
 - [2026-08-06 — Kruskal Maze](2026-08-06-kruskal-maze/) — terminal maze generator/solver: randomized Kruskal's algorithm carves it with a union-find forest, then animated BFS hunts down the exit
 - [2026-08-05 — Nim (XOR Strategy)](2026-08-05-nim-xor/) — one-page interactive Nim game against an unbeatable AI, with a live binary nim-sum panel showing exactly why each position is won or lost

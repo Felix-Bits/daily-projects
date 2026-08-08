@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WFC Pipe Weaver</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: #12151f;
+    --line: #26304a;
+    --accent: #5ee6d0;
+    --accent2: #f2a65a;
+    --text: #d7dce8;
+    --muted: #7c869c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 40px;
+    gap: 16px;
+  }
+  h1 { margin: 0; font-size: 1.4rem; letter-spacing: 0.02em; }
+  p.sub { margin: 0; color: var(--muted); font-size: 0.9rem; max-width: 640px; text-align: center; line-height: 1.5; }
+  #wrap {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    box-shadow: 0 0 40px rgba(94, 230, 208, 0.05);
+  }
+  canvas { display: block; border-radius: 6px; background: #080a10; }
+  #controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  button, select {
+    background: #161b28;
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:active { transform: translateY(1px); }
+  #status {
+    font-size: 0.82rem;
+    color: var(--muted);
+    min-height: 1.2em;
+  }
+  #status .warn { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <h1>WFC Pipe Weaver</h1>
+  <p class="sub">
+    Wave Function Collapse: every cell starts able to be any of 12 pipe tiles. Each step
+    picks the most-constrained cell, collapses it to one tile, and propagates that
+    constraint to its neighbors — like Sudoku solving itself — until a fully
+    connected pipe network falls out with zero global planning.
+  </p>
+  <div id="wrap"><canvas id="c" width="720" height="480"></canvas></div>
+  <div id="controls">
+    <button id="regen">Regenerate</button>
+    <select id="speed">
+      <option value="1">Slow</option>
+      <option value="3" selected>Normal</option>
+      <option value="12">Fast</option>
+      <option value="999">Instant</option>
+    </select>
+  </div>
+  <div id="status"></div>
+
+<script>
+(() => {
+  const COLS = 30, ROWS = 20, SIZE = 24;
+  const canvas = document.getElementById('c');
+  canvas.width = COLS * SIZE;
+  canvas.height = ROWS * SIZE;
+  const ctx = canvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+  const speedSel = document.getElementById('speed');
+  const regenBtn = document.getElementById('regen');
+
+  // --- Tile set: edges = openings on N/E/S/W ('P' = path, 'X' = wall) ---
+  const TILES = [
+    { edges: { N: 'X', E: 'X', S: 'X', W: 'X' }, weight: 3.5 }, // 0 blank
+    { edges: { N: 'X', E: 'P', S: 'X', W: 'P' }, weight: 2 },   // 1 horizontal
+    { edges: { N: 'P', E: 'X', S: 'P', W: 'X' }, weight: 2 },   // 2 vertical
+    { edges: { N: 'P', E: 'P', S: 'X', W: 'X' }, weight: 2 },   // 3 corner NE
+    { edges: { N: 'X', E: 'P', S: 'P', W: 'X' }, weight: 2 },   // 4 corner ES
+    { edges: { N: 'X', E: 'X', S: 'P', W: 'P' }, weight: 2 },   // 5 corner SW
+    { edges: { N: 'P', E: 'X', S: 'X', W: 'P' }, weight: 2 },   // 6 corner WN
+    { edges: { N: 'X', E: 'P', S: 'P', W: 'P' }, weight: 0.8 }, // 7 T missing N
+    { edges: { N: 'P', E: 'X', S: 'P', W: 'P' }, weight: 0.8 }, // 8 T missing E
+    { edges: { N: 'P', E: 'P', S: 'X', W: 'P' }, weight: 0.8 }, // 9 T missing S
+    { edges: { N: 'P', E: 'P', S: 'P', W: 'X' }, weight: 0.8 }, // 10 T missing W
+    { edges: { N: 'P', E: 'P', S: 'P', W: 'P' }, weight: 0.3 }, // 11 cross
+  ];
+  const N_TILES = TILES.length;
+  const OPPOSITE = { N: 'S', S: 'N', E: 'W', W: 'E' };
+  const DELTA = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] };
+
+  // Precompute: for each direction, which (tileA, tileB) pairs are compatible.
+  const COMPAT = {};
+  for (const dir of ['N', 'E', 'S', 'W']) {
+    COMPAT[dir] = TILES.map(a =>
+      TILES.map((b, j) => a.edges[dir] === b.edges[OPPOSITE[dir]] ? j : -1).filter(j => j >= 0)
+    );
+  }
+
+  let grid; // grid[y][x] = { options: Set<tileIndex>, collapsed: bool }
+
+  function freshGrid() {
+    const g = [];
+    for (let y = 0; y < ROWS; y++) {
+      const row = [];
+      for (let x = 0; x < COLS; x++) {
+        let allowed = [...Array(N_TILES).keys()];
+        // Border cells may not open a pipe off the edge of the canvas.
+        if (x === 0) allowed = allowed.filter(t => TILES[t].edges.W === 'X');
+        if (x === COLS - 1) allowed = allowed.filter(t => TILES[t].edges.E === 'X');
+        if (y === 0) allowed = allowed.filter(t => TILES[t].edges.N === 'X');
+        if (y === ROWS - 1) allowed = allowed.filter(t => TILES[t].edges.S === 'X');
+        row.push({ options: new Set(allowed) });
+      }
+      g.push(row);
+    }
+    return g;
+  }
+
+  function inBounds(x, y) { return x >= 0 && x < COLS && y >= 0 && y < ROWS; }
+
+  function entropy(cell) { return cell.options.size; }
+
+  function pickLowestEntropyCell() {
+    let best = null, bestVal = Infinity;
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        const cell = grid[y][x];
+        const e = entropy(cell);
+        if (e <= 1) continue; // already collapsed (or dead, handled elsewhere)
+        const noisy = e + Math.random() * 0.1;
+        if (noisy < bestVal) { bestVal = noisy; best = { x, y }; }
+      }
+    }
+    return best;
+  }
+
+  function weightedPick(options) {
+    const opts = [...options];
+    const total = opts.reduce((s, t) => s + TILES[t].weight, 0);
+    let r = Math.random() * total;
+    for (const t of opts) {
+      r -= TILES[t].weight;
+      if (r <= 0) return t;
+    }
+    return opts[opts.length - 1];
+  }
+
+  // Constraint propagation from a starting cell outward (returns false on contradiction).
+  function propagate(startX, startY) {
+    const stack = [[startX, startY]];
+    while (stack.length) {
+      const [x, y] = stack.pop();
+      const cell = grid[y][x];
+      for (const dir of ['N', 'E', 'S', 'W']) {
+        const [dx, dy] = DELTA[dir];
+        const nx = x + dx, ny = y + dy;
+        if (!inBounds(nx, ny)) continue;
+        const neighbor = grid[ny][nx];
+        if (neighbor.options.size === 0) continue;
+        const allowedForNeighbor = new Set();
+        for (const t of cell.options) {
+          for (const compatT of COMPAT[dir][t]) allowedForNeighbor.add(compatT);
+        }
+        let changed = false;
+        for (const t of [...neighbor.options]) {
+          if (!allowedForNeighbor.has(t)) { neighbor.options.delete(t); changed = true; }
+        }
+        if (neighbor.options.size === 0) return false; // contradiction
+        if (changed) stack.push([nx, ny]);
+      }
+    }
+    return true;
+  }
+
+  function initialPropagateAll() {
+    // Border constraints ripple inward before any collapse happens.
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        if (!propagate(x, y)) return false;
+      }
+    }
+    return true;
+  }
+
+  function drawTile(edges, px, py) {
+    const cx = px + SIZE / 2, cy = py + SIZE / 2, half = SIZE / 2;
+    const degree = Object.values(edges).filter(v => v === 'P').length;
+    if (degree === 0) {
+      ctx.fillStyle = 'rgba(124,134,156,0.15)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    ctx.strokeStyle = degree >= 3 ? '#f2a65a' : '#5ee6d0';
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.shadowColor = ctx.strokeStyle;
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    if (edges.N === 'P') { ctx.moveTo(cx, cy); ctx.lineTo(cx, py); }
+    if (edges.E === 'P') { ctx.moveTo(cx, cy); ctx.lineTo(px + SIZE, cy); }
+    if (edges.S === 'P') { ctx.moveTo(cx, cy); ctx.lineTo(cx, py + SIZE); }
+    if (edges.W === 'P') { ctx.moveTo(cx, cy); ctx.lineTo(px, cy); }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function render(highlight) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        const cell = grid[y][x];
+        const px = x * SIZE, py = y * SIZE;
+        if (cell.options.size === 1) {
+          drawTile(TILES[[...cell.options][0]].edges, px, py);
+        } else {
+          // Uncollapsed: shade by remaining entropy.
+          const frac = cell.options.size / N_TILES;
+          ctx.fillStyle = `rgba(94,230,208,${0.03 + (1 - frac) * 0.05})`;
+          ctx.fillRect(px + 1, py + 1, SIZE - 2, SIZE - 2);
+        }
+      }
+    }
+    if (highlight) {
+      ctx.strokeStyle = '#f2a65a';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(highlight.x * SIZE + 1, highlight.y * SIZE + 1, SIZE - 2, SIZE - 2);
+    }
+  }
+
+  let running = false;
+  let attempt = 0;
+
+  async function run() {
+    if (running) return;
+    running = true;
+    attempt = 0;
+    const MAX_ATTEMPTS = 40;
+
+    while (attempt < MAX_ATTEMPTS) {
+      attempt++;
+      grid = freshGrid();
+      if (!initialPropagateAll()) continue; // border constraints alone contradicted (shouldn't happen)
+      render();
+      statusEl.textContent = `attempt ${attempt} — collapsing…`;
+
+      let ok = true;
+      let stepsSinceYield = 0;
+      const stepsPerFrame = () => Math.max(1, parseInt(speedSel.value, 10));
+
+      while (true) {
+        const target = pickLowestEntropyCell();
+        if (!target) break; // fully collapsed
+        const cell = grid[target.y][target.x];
+        const chosen = weightedPick(cell.options);
+        cell.options = new Set([chosen]);
+        if (!propagate(target.x, target.y)) { ok = false; break; }
+
+        stepsSinceYield++;
+        if (stepsSinceYield >= stepsPerFrame()) {
+          stepsSinceYield = 0;
+          render(target);
+          await new Promise(r => setTimeout(r, 0));
+        }
+      }
+
+      if (ok) {
+        render();
+        statusEl.innerHTML = `done in ${attempt} attempt${attempt > 1 ? 's' : ''} — every edge matches its neighbor.`;
+        running = false;
+        return;
+      }
+      statusEl.innerHTML = `<span class="warn">contradiction on attempt ${attempt} — retrying…</span>`;
+      await new Promise(r => setTimeout(r, 0));
+    }
+    statusEl.innerHTML = `<span class="warn">gave up after ${MAX_ATTEMPTS} attempts (unlucky run) — hit Regenerate.</span>`;
+    running = false;
+  }
+
+  regenBtn.addEventListener('click', run);
+  run();
+})();
+</script>
+</body>
+</html>
