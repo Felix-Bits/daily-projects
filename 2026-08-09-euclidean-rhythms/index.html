@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Euclidean Rhythms</title>
+<style>
+  :root {
+    --bg: #0d0f14;
+    --panel: #161923;
+    --line: #2a2f3d;
+    --text: #e8e9ee;
+    --dim: #8a8fa3;
+    --accent1: #ff6b6b;
+    --accent2: #4ecdc4;
+    --accent3: #ffd93d;
+    --accent4: #a78bfa;
+    --accent5: #6bcf7f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 60px;
+  }
+  h1 { font-size: 1.4rem; margin: 4px 0 2px; letter-spacing: 0.5px; }
+  .subtitle { color: var(--dim); font-size: 0.85rem; margin-bottom: 18px; text-align: center; max-width: 520px; }
+  #wrap { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+  canvas { background: var(--panel); border-radius: 50%; box-shadow: 0 0 0 1px var(--line); }
+  #controls { display: flex; flex-direction: column; gap: 10px; min-width: 340px; }
+  .global {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  button {
+    background: var(--accent2);
+    color: #05201d;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  button:hover { filter: brightness(1.1); }
+  button.secondary { background: var(--line); color: var(--text); }
+  .global label { font-size: 0.8rem; color: var(--dim); display: flex; align-items: center; gap: 6px; }
+  input[type=range] { width: 110px; }
+  .track {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: 14px 70px 1fr 1fr 1fr auto;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.78rem;
+  }
+  .swatch { width: 12px; height: 12px; border-radius: 50%; }
+  .track .name { font-weight: 600; }
+  .track label { color: var(--dim); display: flex; flex-direction: column; gap: 2px; }
+  .track .val { color: var(--text); font-variant-numeric: tabular-nums; }
+  .mute {
+    background: var(--line);
+    color: var(--text);
+    border: none;
+    border-radius: 5px;
+    padding: 5px 8px;
+    cursor: pointer;
+    font-size: 0.72rem;
+  }
+  .mute.on { background: var(--accent1); color: #2a0505; }
+  footer { color: var(--dim); font-size: 0.75rem; margin-top: 22px; max-width: 560px; text-align: center; }
+  a { color: var(--accent2); }
+</style>
+</head>
+<body>
+
+<h1>Euclidean Rhythms</h1>
+<div class="subtitle">
+  Each ring spreads <em>k</em> beats as evenly as possible across <em>n</em> steps — the same
+  algorithm behind flamenco claps, West African bell patterns, and the Cuban tresillo. Turn the
+  wheels and listen to the maths.
+</div>
+
+<div id="wrap">
+  <canvas id="canvas" width="420" height="420"></canvas>
+  <div id="controls">
+    <div class="global">
+      <button id="playBtn">▶ Play</button>
+      <button id="randomBtn" class="secondary">🎲 Randomize</button>
+      <label>BPM <input type="range" id="bpm" min="60" max="200" value="112"><span id="bpmVal" class="val">112</span></label>
+    </div>
+    <div id="tracks"></div>
+  </div>
+</div>
+
+<footer>
+  Click any step-dot directly on the wheel to toggle it by hand. Sounds are synthesized live
+  with the Web Audio API — no samples, no dependencies. Tempo, pulses, steps and rotation are
+  all live-tweakable while playing.
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  const COLORS = ["#ff6b6b", "#4ecdc4", "#ffd93d", "#a78bfa", "#6bcf7f"];
+  const NAMES = ["Kick", "Snare", "Hat", "Clap", "Bell"];
+
+  // Bresenham-style even-spacing: distributes k pulses across n steps as evenly as
+  // possible. Same "maximal evenness" property as the classic Bjorklund/Euclidean
+  // algorithm, just derived via running-sum instead of recursive bisection.
+  function euclid(k, n) {
+    const pat = new Array(n).fill(0);
+    if (k <= 0 || n <= 0) return pat;
+    if (k >= n) return pat.fill(1);
+    let bucket = 0;
+    for (let i = 0; i < n; i++) {
+      bucket += k;
+      if (bucket >= n) {
+        bucket -= n;
+        pat[i] = 1;
+      }
+    }
+    return pat;
+  }
+
+  function rotate(arr, offset) {
+    const n = arr.length;
+    const o = ((offset % n) + n) % n;
+    return arr.slice(o).concat(arr.slice(0, o));
+  }
+
+  const tracksState = [
+    { steps: 8, pulses: 3, rotation: 0, muted: false },
+    { steps: 8, pulses: 5, rotation: 2, muted: false },
+    { steps: 16, pulses: 7, rotation: 0, muted: false },
+    { steps: 12, pulses: 4, rotation: 5, muted: true },
+    { steps: 6, pulses: 2, rotation: 1, muted: true },
+  ];
+
+  let bpm = 112;
+  let playing = false;
+  let currentStep16 = 0; // master pulse counter, advances at 16th-note rate relative to a 16-step bar
+  let audioCtx = null;
+  let nextNoteTime = 0;
+  let schedulerTimer = null;
+  const LOOKAHEAD_MS = 25;
+  const SCHEDULE_AHEAD_S = 0.12;
+
+  function stepDuration() {
+    // one 16th note in seconds, used as the base grid all track lengths are measured against
+    return (60 / bpm) / 4;
+  }
+
+  function ensureAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+
+  function noiseBuffer(ctx, seconds) {
+    const buf = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    return buf;
+  }
+
+  function playSound(trackIndex, time) {
+    const ctx = audioCtx;
+    const g = ctx.createGain();
+    g.connect(ctx.destination);
+
+    if (trackIndex === 0) { // Kick
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(150, time);
+      osc.frequency.exponentialRampToValueAtTime(45, time + 0.12);
+      g.gain.setValueAtTime(0.9, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.25);
+      osc.connect(g);
+      osc.start(time);
+      osc.stop(time + 0.26);
+    } else if (trackIndex === 1) { // Snare
+      const noise = ctx.createBufferSource();
+      noise.buffer = noiseBuffer(ctx, 0.2);
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 1800;
+      g.gain.setValueAtTime(0.5, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+      noise.connect(bp).connect(g);
+      noise.start(time);
+      noise.stop(time + 0.16);
+    } else if (trackIndex === 2) { // Hat
+      const noise = ctx.createBufferSource();
+      noise.buffer = noiseBuffer(ctx, 0.08);
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = 7000;
+      g.gain.setValueAtTime(0.35, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.045);
+      noise.connect(hp).connect(g);
+      noise.start(time);
+      noise.stop(time + 0.05);
+    } else if (trackIndex === 3) { // Clap
+      const noise = ctx.createBufferSource();
+      noise.buffer = noiseBuffer(ctx, 0.2);
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 1200;
+      bp.Q.value = 2;
+      g.gain.setValueAtTime(0.001, time);
+      g.gain.linearRampToValueAtTime(0.45, time + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
+      noise.connect(bp).connect(g);
+      noise.start(time);
+      noise.stop(time + 0.19);
+    } else { // Bell
+      const osc = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      osc.type = "sine";
+      osc2.type = "sine";
+      osc.frequency.value = 880;
+      osc2.frequency.value = 880 * 2.41;
+      g.gain.setValueAtTime(0.28, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.4);
+      osc.connect(g);
+      osc2.connect(g);
+      osc.start(time);
+      osc2.start(time);
+      osc.stop(time + 0.4);
+      osc2.stop(time + 0.4);
+    }
+  }
+
+  // Each track loops on its own step grid; convert the shared 16th-note master clock
+  // into "did this track's k-th step land now" using a per-track phase accumulator.
+  const trackPhase = tracksState.map(() => 0);
+
+  // Per-track manual overrides from clicking directly on the wheel, keyed by step
+  // index; patched on top of the generated Euclidean pattern.
+  const overrides = tracksState.map(() => ({}));
+
+  function effectivePattern(idx) {
+    const t = tracksState[idx];
+    const base = rotate(euclid(t.pulses, t.steps), t.rotation);
+    const ov = overrides[idx];
+    return base.map((v, i) => (ov.hasOwnProperty(i) ? ov[i] : v));
+  }
+
+  function scheduleTrackHits(masterStepTime) {
+    tracksState.forEach((t, idx) => {
+      const pattern = effectivePattern(idx);
+      const stepIdx = trackPhase[idx] % t.steps;
+      if (pattern[stepIdx] === 1 && !t.muted) {
+        playSound(idx, masterStepTime);
+      }
+      trackPhase[idx] = (trackPhase[idx] + 1) % t.steps;
+    });
+  }
+
+  function scheduler() {
+    while (nextNoteTime < audioCtx.currentTime + SCHEDULE_AHEAD_S) {
+      scheduleTrackHits(nextNoteTime);
+      visualQueue.push({ time: nextNoteTime, step: currentStep16 });
+      nextNoteTime += stepDuration();
+      currentStep16++;
+    }
+    schedulerTimer = setTimeout(scheduler, LOOKAHEAD_MS);
+  }
+
+  let visualQueue = [];
+  let lastDrawnStep = -1;
+
+  function startPlayback() {
+    ensureAudio();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    playing = true;
+    trackPhase.fill(0);
+    currentStep16 = 0;
+    nextNoteTime = audioCtx.currentTime + 0.05;
+    visualQueue = [];
+    scheduler();
+    document.getElementById("playBtn").textContent = "⏸ Stop";
+  }
+
+  function stopPlayback() {
+    playing = false;
+    clearTimeout(schedulerTimer);
+    document.getElementById("playBtn").textContent = "▶ Play";
+  }
+
+  // ---------- rendering ----------
+  const canvas = document.getElementById("canvas");
+  const ctx2d = canvas.getContext("2d");
+  const CX = canvas.width / 2, CY = canvas.height / 2;
+  const RING_GAP = 34;
+  const OUTER_R = 190;
+
+  function ringRadius(i) {
+    return OUTER_R - i * RING_GAP;
+  }
+
+  function draw() {
+    const now = audioCtx ? audioCtx.currentTime : 0;
+    while (visualQueue.length && visualQueue[0].time <= now) {
+      lastDrawnStep = visualQueue.shift().step;
+    }
+
+    ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+
+    tracksState.forEach((t, idx) => {
+      const r = ringRadius(idx);
+      const pattern = effectivePattern(idx);
+      const color = COLORS[idx];
+
+      ctx2d.strokeStyle = "#232838";
+      ctx2d.lineWidth = 1;
+      ctx2d.beginPath();
+      ctx2d.arc(CX, CY, r, 0, Math.PI * 2);
+      ctx2d.stroke();
+
+      const activeIdx = playing ? (lastDrawnStep % t.steps) : -1;
+
+      for (let s = 0; s < t.steps; s++) {
+        const angle = (s / t.steps) * Math.PI * 2 - Math.PI / 2;
+        const x = CX + Math.cos(angle) * r;
+        const y = CY + Math.sin(angle) * r;
+        const isOn = pattern[s] === 1;
+        const isCurrent = s === activeIdx;
+
+        ctx2d.beginPath();
+        ctx2d.arc(x, y, isOn ? 7 : 3.5, 0, Math.PI * 2);
+        if (t.muted) {
+          ctx2d.fillStyle = isOn ? "#3a3f4d" : "#20232e";
+        } else {
+          ctx2d.fillStyle = isOn ? color : "#2a2f3d";
+        }
+        ctx2d.globalAlpha = isCurrent && isOn && !t.muted ? 1 : 0.9;
+        ctx2d.fill();
+        if (isCurrent) {
+          ctx2d.globalAlpha = 1;
+          ctx2d.beginPath();
+          ctx2d.arc(x, y, isOn ? 11 : 6, 0, Math.PI * 2);
+          ctx2d.strokeStyle = t.muted ? "#555" : color;
+          ctx2d.lineWidth = 2;
+          ctx2d.stroke();
+        }
+        ctx2d.globalAlpha = 1;
+      }
+    });
+
+    // center dot
+    ctx2d.beginPath();
+    ctx2d.arc(CX, CY, 4, 0, Math.PI * 2);
+    ctx2d.fillStyle = "#555";
+    ctx2d.fill();
+
+    requestAnimationFrame(draw);
+  }
+
+  // click-to-toggle: find nearest ring + step to a click and flip a manual override
+  canvas.addEventListener("click", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left - CX;
+    const my = e.clientY - rect.top - CY;
+    const dist = Math.sqrt(mx * mx + my * my);
+
+    let bestIdx = -1, bestDelta = Infinity;
+    tracksState.forEach((t, idx) => {
+      const r = ringRadius(idx);
+      const delta = Math.abs(dist - r);
+      if (delta < bestDelta && delta < 16) { bestDelta = delta; bestIdx = idx; }
+    });
+    if (bestIdx === -1) return;
+
+    const t = tracksState[bestIdx];
+    let angle = Math.atan2(my, mx) + Math.PI / 2;
+    if (angle < 0) angle += Math.PI * 2;
+    const step = Math.round((angle / (Math.PI * 2)) * t.steps) % t.steps;
+
+    const currentlyOn = effectivePattern(bestIdx)[step];
+    overrides[bestIdx][step] = currentlyOn ? 0 : 1;
+  });
+
+  // ---------- UI ----------
+  const tracksEl = document.getElementById("tracks");
+
+  function buildTrackRow(t, idx) {
+    const row = document.createElement("div");
+    row.className = "track";
+    row.innerHTML = `
+      <span class="swatch" style="background:${COLORS[idx]}"></span>
+      <span class="name">${NAMES[idx]}</span>
+      <label>steps
+        <input type="range" min="2" max="16" value="${t.steps}" data-idx="${idx}" data-field="steps">
+        <span class="val" data-out="steps-${idx}">${t.steps}</span>
+      </label>
+      <label>pulses
+        <input type="range" min="0" max="${t.steps}" value="${t.pulses}" data-idx="${idx}" data-field="pulses">
+        <span class="val" data-out="pulses-${idx}">${t.pulses}</span>
+      </label>
+      <label>rotate
+        <input type="range" min="0" max="${t.steps - 1}" value="${t.rotation}" data-idx="${idx}" data-field="rotation">
+        <span class="val" data-out="rotation-${idx}">${t.rotation}</span>
+      </label>
+      <button class="mute ${t.muted ? "on" : ""}" data-idx="${idx}">${t.muted ? "muted" : "mute"}</button>
+    `;
+    return row;
+  }
+
+  function renderTracks() {
+    tracksEl.innerHTML = "";
+    tracksState.forEach((t, idx) => tracksEl.appendChild(buildTrackRow(t, idx)));
+    attachTrackListeners();
+  }
+
+  function attachTrackListeners() {
+    tracksEl.querySelectorAll("input[type=range]").forEach((input) => {
+      input.addEventListener("input", () => {
+        const idx = +input.dataset.idx;
+        const field = input.dataset.field;
+        const val = +input.value;
+        const t = tracksState[idx];
+        t[field] = val;
+        if (field === "steps") {
+          t.pulses = Math.min(t.pulses, val);
+          t.rotation = Math.min(t.rotation, Math.max(0, val - 1));
+          overrides[idx] = {}; // step count changed shape, drop manual edits
+          renderTracks();
+          return;
+        }
+        overrides[idx] = {}; // pulses/rotation changed, drop manual edits so the new pattern is visible
+        document.querySelector(`[data-out="${field}-${idx}"]`).textContent = val;
+      });
+    });
+    tracksEl.querySelectorAll(".mute").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = +btn.dataset.idx;
+        tracksState[idx].muted = !tracksState[idx].muted;
+        btn.classList.toggle("on", tracksState[idx].muted);
+        btn.textContent = tracksState[idx].muted ? "muted" : "mute";
+      });
+    });
+  }
+
+  document.getElementById("playBtn").addEventListener("click", () => {
+    playing ? stopPlayback() : startPlayback();
+  });
+
+  document.getElementById("randomBtn").addEventListener("click", () => {
+    tracksState.forEach((t, idx) => {
+      t.steps = 4 + Math.floor(Math.random() * 13); // 4..16
+      t.pulses = 1 + Math.floor(Math.random() * t.steps);
+      t.rotation = Math.floor(Math.random() * t.steps);
+      overrides[idx] = {};
+    });
+    renderTracks();
+  });
+
+  document.getElementById("bpm").addEventListener("input", (e) => {
+    bpm = +e.target.value;
+    document.getElementById("bpmVal").textContent = bpm;
+  });
+
+  renderTracks();
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
