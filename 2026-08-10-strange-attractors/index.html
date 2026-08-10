@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Strange Attractor Explorer</title>
+<style>
+  :root {
+    --bg: #0b0c10;
+    --panel: #14161c;
+    --text: #e8e8ee;
+    --muted: #8a8d98;
+    --accent: #ff8a3d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 20px;
+  }
+  h1 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: 0.02em;
+  }
+  #sub {
+    color: var(--muted);
+    font-size: 0.85rem;
+    text-align: center;
+    max-width: 600px;
+    margin: 0;
+  }
+  canvas {
+    background: #000;
+    border-radius: 6px;
+    box-shadow: 0 0 0 1px #23262f, 0 20px 60px -20px rgba(0,0,0,0.7);
+    max-width: 92vmin;
+    max-height: 92vmin;
+  }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+  }
+  button, select {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid #2a2d38;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--accent); }
+  button.primary {
+    background: var(--accent);
+    color: #1a1200;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  #info {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    text-align: center;
+    max-width: 640px;
+  }
+</style>
+</head>
+<body>
+  <h1>Strange Attractor Explorer</h1>
+  <p id="sub">
+    Four numbers, one tiny formula, applied a few million times. No randomness after the seed —
+    each pixel's brightness is just how often a deterministic chaotic map landed there.
+  </p>
+  <canvas id="c" width="900" height="900"></canvas>
+  <div class="controls">
+    <select id="family">
+      <option value="dejong">De Jong</option>
+      <option value="clifford">Clifford</option>
+      <option value="svensson">Svensson</option>
+      <option value="bedhead">Bedhead</option>
+    </select>
+    <button id="newBtn" class="primary">New Attractor</button>
+    <button id="paletteBtn">Cycle Palette</button>
+    <button id="saveBtn">Download PNG</button>
+  </div>
+  <div id="info">seed: —</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const familySel = document.getElementById('family');
+const info = document.getElementById('info');
+
+const FAMILIES = {
+  dejong: {
+    label: 'De Jong',
+    range: () => 3.2,
+    fn: (x, y, p) => [
+      Math.sin(p.a * y) - Math.cos(p.b * x),
+      Math.sin(p.c * x) - Math.cos(p.d * y)
+    ]
+  },
+  clifford: {
+    label: 'Clifford',
+    range: () => 2.4,
+    fn: (x, y, p) => [
+      Math.sin(p.a * y) + p.c * Math.cos(p.a * x),
+      Math.sin(p.b * x) + p.d * Math.cos(p.b * y)
+    ]
+  },
+  svensson: {
+    label: 'Svensson',
+    range: () => 2.5,
+    fn: (x, y, p) => [
+      p.d * Math.sin(p.a * x) - Math.sin(p.b * y),
+      p.c * Math.cos(p.a * x) + Math.cos(p.b * y)
+    ]
+  },
+  bedhead: {
+    label: 'Bedhead',
+    range: () => 1.6,
+    fn: (x, y, p) => [
+      Math.sin(x * y / p.b) * y + Math.cos(p.a * x - y),
+      x + Math.sin(y) / p.b
+    ]
+  }
+};
+
+const PALETTES = [
+  // [r,g,b] for hottest pixel; density fades toward this from black
+  { name: 'ember', hi: [255, 170, 60], mid: [180, 40, 40] },
+  { name: 'glacier', hi: [140, 220, 255], mid: [30, 70, 160] },
+  { name: 'toxic', hi: [200, 255, 90], mid: [20, 120, 70] },
+  { name: 'violet', hi: [230, 160, 255], mid: [80, 30, 140] }
+];
+let paletteIndex = 0;
+
+function randParam() {
+  return (Math.random() * 2 - 1) * 3;
+}
+
+function tryRandomAttractor(familyKey) {
+  const family = FAMILIES[familyKey];
+  const range = family.range();
+  const p = { a: randParam(), b: randParam(), c: randParam(), d: randParam() };
+  if (familyKey === 'bedhead' && Math.abs(p.b) < 0.3) p.b = 0.3 * Math.sign(p.b || 1);
+
+  // Burn-in, then collect samples to find bounds and check the orbit
+  // actually fills a 2D region instead of collapsing into a few thin loops.
+  let x = 0.1, y = 0.1;
+  for (let i = 0; i < 50; i++) [x, y] = family.fn(x, y, p);
+  const BOUND_SAMPLES = 20000;
+  const xs = new Float64Array(BOUND_SAMPLES), ys = new Float64Array(BOUND_SAMPLES);
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < BOUND_SAMPLES; i++) {
+    [x, y] = family.fn(x, y, p);
+    if (!isFinite(x) || !isFinite(y)) return null;
+    xs[i] = x; ys[i] = y;
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  }
+  const spanX = maxX - minX, spanY = maxY - minY;
+  if (!isFinite(spanX) || !isFinite(spanY) || spanX < 0.05 || spanY < 0.05) return null;
+  if (spanX > range * 20 || spanY > range * 20) return null;
+
+  // Coarse-grid coverage check: reject sparse/periodic orbits that only
+  // trace a few thin loops instead of filling a genuine 2D attractor.
+  const GRID = 40;
+  const seen = new Uint8Array(GRID * GRID);
+  let covered = 0;
+  for (let i = 0; i < BOUND_SAMPLES; i++) {
+    let gx = ((xs[i] - minX) / spanX * GRID) | 0;
+    let gy = ((ys[i] - minY) / spanY * GRID) | 0;
+    if (gx >= GRID) gx = GRID - 1;
+    if (gy >= GRID) gy = GRID - 1;
+    const idx = gy * GRID + gx;
+    if (!seen[idx]) { seen[idx] = 1; covered++; }
+  }
+  if (covered < GRID * GRID * 0.25) return null;
+
+  return { family: familyKey, p, minX, maxX, minY, maxY, startX: x, startY: y };
+}
+
+function findAttractor(familyKey) {
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const a = tryRandomAttractor(familyKey);
+    if (a) return a;
+  }
+  // Fallback to a hand-picked classic De Jong if random search fails repeatedly
+  return {
+    family: 'dejong',
+    p: { a: -2.0, b: -2.0, c: -1.2, d: 2.0 },
+    minX: -2, maxX: 2, minY: -2, maxY: 2, startX: 0.1, startY: 0.1
+  };
+}
+
+function render(attractor) {
+  const family = FAMILIES[attractor.family];
+  const density = new Uint32Array(W * H);
+  const padX = (attractor.maxX - attractor.minX) * 0.04;
+  const padY = (attractor.maxY - attractor.minY) * 0.04;
+  const minX = attractor.minX - padX, maxX = attractor.maxX + padX;
+  const minY = attractor.minY - padY, maxY = attractor.maxY + padY;
+  const sx = (W - 1) / (maxX - minX);
+  const sy = (H - 1) / (maxY - minY);
+
+  let x = attractor.startX, y = attractor.startY;
+  const N = 3000000;
+  let maxDensity = 0;
+  for (let i = 0; i < N; i++) {
+    [x, y] = family.fn(x, y, attractor.p);
+    const px = ((x - minX) * sx) | 0;
+    const py = ((y - minY) * sy) | 0;
+    if (px >= 0 && px < W && py >= 0 && py < H) {
+      const idx = py * W + px;
+      const v = ++density[idx];
+      if (v > maxDensity) maxDensity = v;
+    }
+  }
+
+  const img = ctx.createImageData(W, H);
+  const data = img.data;
+  const logMax = Math.log(1 + maxDensity);
+  const pal = PALETTES[paletteIndex];
+  for (let i = 0; i < density.length; i++) {
+    const d = density[i];
+    if (d === 0) continue;
+    const t = Math.log(1 + d) / logMax; // 0..1 perceptual brightness
+    const o = i * 4;
+    // black -> mid -> hi gradient
+    if (t < 0.5) {
+      const u = t / 0.5;
+      data[o]     = pal.mid[0] * u;
+      data[o + 1] = pal.mid[1] * u;
+      data[o + 2] = pal.mid[2] * u;
+    } else {
+      const u = (t - 0.5) / 0.5;
+      data[o]     = pal.mid[0] + (pal.hi[0] - pal.mid[0]) * u;
+      data[o + 1] = pal.mid[1] + (pal.hi[1] - pal.mid[1]) * u;
+      data[o + 2] = pal.mid[2] + (pal.hi[2] - pal.mid[2]) * u;
+    }
+    data[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const p = attractor.p;
+  info.textContent =
+    `${FAMILIES[attractor.family].label}  a=${p.a.toFixed(3)} b=${p.b.toFixed(3)} ` +
+    `c=${p.c.toFixed(3)} d=${p.d.toFixed(3)}  ·  ${N.toLocaleString()} points  ·  palette: ${pal.name}`;
+}
+
+let currentAttractor = null;
+
+function generate() {
+  const familyKey = familySel.value;
+  currentAttractor = findAttractor(familyKey);
+  render(currentAttractor);
+}
+
+document.getElementById('newBtn').addEventListener('click', generate);
+document.getElementById('paletteBtn').addEventListener('click', () => {
+  paletteIndex = (paletteIndex + 1) % PALETTES.length;
+  render(currentAttractor); // recolor the current shape, don't reroll it
+});
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const link = document.createElement('a');
+  link.download = 'attractor.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+});
+familySel.addEventListener('change', generate);
+
+generate();
+</script>
+</body>
+</html>
