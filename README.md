@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-08-12 — Harmonograph](2026-08-12-harmonograph/) — canvas simulation of a Victorian pendulum drawing machine, summing damped sine waves per axis to trace spiraling Lissajous-like rosettes that die out as the "pendulums" lose energy
 - [2026-08-11 — Jitter Entropy](2026-08-11-jitter-entropy/) — terminal CLI homebrew RNG that harvests randomness from CPU timing jitter, debiases it live with a von Neumann extractor, and visualizes raw vs. debiased bitstreams side by side
 - [2026-08-10 — Strange Attractor Explorer](2026-08-10-strange-attractors/) — canvas toy that plots 3 million iterations of four-parameter chaotic maps (De Jong, Clifford, Svensson, Bedhead), auto-rejecting random parameters that produce boring degenerate orbits until it finds a genuine fractal
 - [2026-08-09 — Euclidean Rhythms](2026-08-09-euclidean-rhythms/) — single-page Web Audio drum machine where five rings each spread their own beats via the Euclidean-rhythm algorithm, synthesized live and playable as a polymeter
