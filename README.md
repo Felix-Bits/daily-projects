@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-08-13 — Doom Fire](2026-08-13-doom-fire/) — terminal recreation of the classic DOOM title-screen fire effect: each pixel copies the heat of the pixel below it with a random wobble and slight cooling, rendered in 24-bit ANSI color with half-block double vertical resolution
 - [2026-08-12 — Harmonograph](2026-08-12-harmonograph/) — canvas simulation of a Victorian pendulum drawing machine, summing damped sine waves per axis to trace spiraling Lissajous-like rosettes that die out as the "pendulums" lose energy
 - [2026-08-11 — Jitter Entropy](2026-08-11-jitter-entropy/) — terminal CLI homebrew RNG that harvests randomness from CPU timing jitter, debiases it live with a von Neumann extractor, and visualizes raw vs. debiased bitstreams side by side
 - [2026-08-10 — Strange Attractor Explorer](2026-08-10-strange-attractors/) — canvas toy that plots 3 million iterations of four-parameter chaotic maps (De Jong, Clifford, Svensson, Bedhead), auto-rejecting random parameters that produce boring degenerate orbits until it finds a genuine fractal
