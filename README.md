@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-08-15 — Abelian Sandpile](2026-08-15-abelian-sandpile/) — terminal toppling-automaton simulator that drops tens of thousands of grains at a single point and watches self-organized criticality turn one trivial local rule into an intricate, perfectly symmetric fractal
 - [2026-08-14 — Pixel Whisper](2026-08-14-pixel-whisper/) — steganography CLI that hides a text message in the least-significant bits of a PPM image's pixels, with diff/preview commands proving the change is invisible (max channel delta of 1)
 - [2026-08-13 — Doom Fire](2026-08-13-doom-fire/) — terminal recreation of the classic DOOM title-screen fire effect: each pixel copies the heat of the pixel below it with a random wobble and slight cooling, rendered in 24-bit ANSI color with half-block double vertical resolution
 - [2026-08-12 — Harmonograph](2026-08-12-harmonograph/) — canvas simulation of a Victorian pendulum drawing machine, summing damped sine waves per axis to trace spiraling Lissajous-like rosettes that die out as the "pendulums" lose energy
