@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Truchet Flow</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #0b0c10;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  canvas { display: block; cursor: crosshair; }
+  #hud {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    color: #9fb3c8;
+    font-size: 12px;
+    line-height: 1.6;
+    background: rgba(11,12,16,0.6);
+    padding: 8px 12px;
+    border-radius: 6px;
+    pointer-events: none;
+    user-select: none;
+  }
+  #hud b { color: #e8f0f8; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div><b>Truchet Flow</b></div>
+  <div>move mouse to bend the current</div>
+  <div>click / space: reseed &middot; +/-: tile size</div>
+</div>
+<script>
+(function () {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  // ---- tiny seeded value-noise (no deps) ----
+  let seed = Math.floor(Math.random() * 65535);
+  function hash(x, y) {
+    let n = x * 374761393 + y * 668265263 + seed * 2147483647;
+    n = (n ^ (n >> 13)) * 1274126177;
+    n = n ^ (n >> 16);
+    return ((n >>> 0) / 4294967295) * 2 - 1;
+  }
+  function smooth(t) { return t * t * (3 - 2 * t); }
+  function valueNoise(x, y) {
+    const x0 = Math.floor(x), y0 = Math.floor(y);
+    const x1 = x0 + 1, y1 = y0 + 1;
+    const sx = smooth(x - x0), sy = smooth(y - y0);
+    const n00 = hash(x0, y0), n10 = hash(x1, y0);
+    const n01 = hash(x0, y1), n11 = hash(x1, y1);
+    const ix0 = n00 + (n10 - n00) * sx;
+    const ix1 = n01 + (n11 - n01) * sx;
+    return ix0 + (ix1 - ix0) * sy;
+  }
+
+  let W, H, tile = 26;
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  let mouseX = W / 2, mouseY = H / 2, mouseActive = 0;
+  canvas.addEventListener('mousemove', (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+    mouseActive = 1;
+  });
+  canvas.addEventListener('mouseleave', () => { mouseActive = 0; });
+  canvas.addEventListener('click', reseed);
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') { reseed(); e.preventDefault(); }
+    if (e.key === '+' || e.key === '=') tile = Math.min(60, tile + 4);
+    if (e.key === '-' || e.key === '_') tile = Math.max(10, tile - 4);
+  });
+  function reseed() { seed = Math.floor(Math.random() * 65535); }
+
+  let t = 0;
+  function draw() {
+    t += 0.0035;
+    ctx.fillStyle = '#0b0c10';
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(120,200,255,0.85)';
+    ctx.lineWidth = Math.max(1.5, tile * 0.06);
+    ctx.lineCap = 'round';
+
+    const cols = Math.ceil(W / tile) + 1;
+    const rows = Math.ceil(H / tile) + 1;
+    const scale = 0.045;
+
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < cols; i++) {
+        const cx = i * tile + tile / 2;
+        const cy = j * tile + tile / 2;
+
+        // base flow angle from noise field, drifting slowly over time
+        let angle = valueNoise(i * scale + t, j * scale + t * 0.6) * Math.PI * 2.2;
+
+        // mouse warps the field like a current bending around an obstacle
+        if (mouseActive) {
+          const dx = cx - mouseX, dy = cy - mouseY;
+          const dist = Math.sqrt(dx * dx + dy * dy) + 1;
+          const pull = Math.max(0, 1 - dist / 260);
+          angle += Math.atan2(dy, dx) * pull * 1.4;
+        }
+
+        // quantize the continuous flow direction into one of two Truchet
+        // diagonals -- neighboring cells share similar noise, so the
+        // discrete tiles still chain into smooth flowing arcs
+        const orientation = Math.round(angle / (Math.PI / 2)) % 2;
+
+        ctx.beginPath();
+        if (orientation === 0) {
+          ctx.arc(i * tile, j * tile, tile / 2, 0, Math.PI / 2);
+          ctx.moveTo((i + 1) * tile, (j + 1) * tile);
+          ctx.arc((i + 1) * tile, (j + 1) * tile, tile / 2, Math.PI, Math.PI * 1.5);
+        } else {
+          ctx.arc((i + 1) * tile, j * tile, tile / 2, Math.PI / 2, Math.PI);
+          ctx.moveTo(i * tile, (j + 1) * tile);
+          ctx.arc(i * tile, (j + 1) * tile, tile / 2, Math.PI * 1.5, Math.PI * 2);
+        }
+        ctx.stroke();
+      }
+    }
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+</body>
+</html>
