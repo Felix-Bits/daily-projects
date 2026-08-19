@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-08-19 — Turmite Zoo](2026-08-19-turmite-zoo/) — canvas toy for Langton's-Ant-style turmites where the same one-line update rule, given six different state strings, either sprawls into endless noise, stays a contained chaotic blob, grows filled triangles, or (in the classic case) spends ~10,000 steps looking random before locking onto a diagonal highway forever
 - [2026-08-18 — SDF Raymarcher](2026-08-18-sdf-raymarcher/) — terminal 3D renderer with no triangles or graphics library: sphere-traces a signed distance field to draw a lit, tumbling torus/sphere blend, shaded with 24-bit ANSI color and half-block double vertical resolution
 - [2026-08-17 — Entropy Wordle](2026-08-17-entropy-wordle/) — terminal Wordle solver that scores every candidate guess by Shannon entropy over its feedback-pattern distribution and always plays the most informative one, printing bits expected vs. gained as the candidate pool collapses
 - [2026-08-16 — Truchet Flow](2026-08-16-truchet-flow/) — canvas generative art toy where classic Truchet tile orientations are quantized from a continuous drifting noise field instead of coin flips, so the discrete arcs chain into smooth flowing wood-grain curves that bend around the mouse

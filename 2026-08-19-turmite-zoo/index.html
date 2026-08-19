@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Turmite Zoo</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #14171f;
+    --border: #262b38;
+    --text: #d7dbe6;
+    --dim: #7d8399;
+    --accent: #6ee7b7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    gap: 14px;
+  }
+  h1 { margin: 0; font-size: 1.3rem; font-weight: 600; }
+  .sub { color: var(--dim); font-size: 0.85rem; margin-top: -8px; text-align: center; max-width: 640px; }
+  #wrap {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: #000;
+    line-height: 0;
+  }
+  canvas { display: block; image-rendering: pixelated; }
+  .panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    align-items: center;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 0.85rem;
+  }
+  label { color: var(--dim); display: flex; align-items: center; gap: 6px; }
+  select, button {
+    background: #1b1f2a;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 5px 9px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  button.active, select:hover, button:hover { border-color: var(--accent); }
+  input[type=range] { width: 130px; accent-color: var(--accent); }
+  #stats { color: var(--dim); font-variant-numeric: tabular-nums; }
+  #stats b { color: var(--text); }
+</style>
+</head>
+<body>
+
+<h1>Turmite Zoo</h1>
+<div class="sub">
+  A <b>turmite</b> is Langton's Ant generalized: a state string like <code>RL</code> means
+  "on a white cell turn Right, on a black cell turn Left," then advance the cell's color and step forward.
+  Same tiny rule, wildly different destinies &mdash; some rules churn out pure chaos forever, some settle
+  into repeating highways or filled triangles, and the original <code>RL</code> spends ~10,000 steps
+  looking like noise before suddenly discovering a diagonal "highway" and walking off in a straight
+  line forever.
+</div>
+
+<div id="wrap"><canvas id="c"></canvas></div>
+
+<div class="panel">
+  <label>Rule
+    <select id="rule"></select>
+  </label>
+  <label>Ants
+    <select id="antCount">
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="4">4</option>
+    </select>
+  </label>
+  <label>Speed
+    <input id="speed" type="range" min="1" max="400" value="40">
+  </label>
+  <button id="playBtn">Pause</button>
+  <button id="resetBtn">Reset</button>
+  <span id="stats">step <b id="stepCount">0</b></span>
+</div>
+
+<script>
+const RULES = [
+  { name: "RL — chaos into highway",         code: "RL" },
+  { name: "RLR — sprawling chaos",           code: "RLR" },
+  { name: "LLRR — contained chaos ball",     code: "LLRR" },
+  { name: "RRLLLRLLLRRR — triangle highways", code: "RRLLLRLLLRRR" },
+  { name: "LLRRRLRLRLLR — scalloped double highway", code: "LLRRRLRLRLLR" },
+  { name: "LRRRRRLLR — wraparound flood",    code: "LRRRRRLLR" },
+];
+
+const CELL = 3;
+const COLS = 260, ROWS = 180;
+
+const canvas = document.getElementById('c');
+canvas.width = COLS * CELL;
+canvas.height = ROWS * CELL;
+const ctx = canvas.getContext('2d');
+
+const ruleSel = document.getElementById('rule');
+RULES.forEach((r, i) => {
+  const opt = document.createElement('option');
+  opt.value = i;
+  opt.textContent = r.name;
+  ruleSel.appendChild(opt);
+});
+
+const antCountSel = document.getElementById('antCount');
+const speedSlider = document.getElementById('speed');
+const playBtn = document.getElementById('playBtn');
+const resetBtn = document.getElementById('resetBtn');
+const stepCountEl = document.getElementById('stepCount');
+
+// direction vectors: 0=up 1=right 2=down 3=left
+const DX = [0, 1, 0, -1];
+const DY = [-1, 0, 1, 0];
+
+let grid, ants, rule, stepsTaken, running, colors;
+
+function colorForState(state, n) {
+  if (state === 0) return '#0b0d12'; // background
+  const hue = 150 + (state / n) * 180; // greens through blues/purples
+  const light = 35 + (state / n) * 35;
+  return `hsl(${hue}, 70%, ${light}%)`;
+}
+
+function reset() {
+  const ruleCode = RULES[ruleSel.value].code;
+  rule = ruleCode.split('').map(c => c === 'R' ? 1 : -1); // +1 = turn right, -1 = turn left
+  const n = rule.length;
+  colors = new Array(n);
+  for (let i = 0; i < n; i++) colors[i] = colorForState(i, n);
+
+  grid = new Uint8Array(COLS * ROWS);
+  ctx.fillStyle = colors[0];
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const count = parseInt(antCountSel.value, 10);
+  ants = [];
+  const cx = Math.floor(COLS / 2), cy = Math.floor(ROWS / 2);
+  const offsets = [[0,0],[0,0],[-6,0],[6,0]]; // used when count>=2
+  const startDirs = [0, 2, 1, 3];
+  if (count === 1) {
+    ants.push({ x: cx, y: cy, dir: 0 });
+  } else if (count === 2) {
+    ants.push({ x: cx - 4, y: cy, dir: 1 });
+    ants.push({ x: cx + 4, y: cy, dir: 3 });
+  } else {
+    ants.push({ x: cx, y: cy - 8, dir: 2 });
+    ants.push({ x: cx, y: cy + 8, dir: 0 });
+    ants.push({ x: cx - 8, y: cy, dir: 1 });
+    ants.push({ x: cx + 8, y: cy, dir: 3 });
+  }
+
+  stepsTaken = 0;
+  stepCountEl.textContent = '0';
+}
+
+function step() {
+  const n = rule.length;
+  for (const ant of ants) {
+    const idx = ant.y * COLS + ant.x;
+    const state = grid[idx];
+    ant.dir = (ant.dir + rule[state] + 4) % 4;
+    const next = (state + 1) % n;
+    grid[idx] = next;
+    ctx.fillStyle = colors[next];
+    ctx.fillRect(ant.x * CELL, ant.y * CELL, CELL, CELL);
+
+    ant.x = (ant.x + DX[ant.dir] + COLS) % COLS;
+    ant.y = (ant.y + DY[ant.dir] + ROWS) % ROWS;
+  }
+  stepsTaken++;
+}
+
+function frame() {
+  if (running) {
+    const perFrame = parseInt(speedSlider.value, 10);
+    for (let i = 0; i < perFrame; i++) step();
+    stepCountEl.textContent = stepsTaken.toLocaleString();
+  }
+  requestAnimationFrame(frame);
+}
+
+playBtn.addEventListener('click', () => {
+  running = !running;
+  playBtn.textContent = running ? 'Pause' : 'Play';
+});
+resetBtn.addEventListener('click', reset);
+ruleSel.addEventListener('change', reset);
+antCountSel.addEventListener('change', reset);
+
+running = true;
+reset();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
