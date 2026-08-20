@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hamiltonian Snake</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --dim: #6e7681;
+    --snake: #3fb950;
+    --snake-head: #7ee787;
+    --apple: #f85149;
+    --path: #21262d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 24px 16px 40px;
+  }
+  h1 { margin: 4px 0 0; font-size: 1.3rem; letter-spacing: 0.02em; }
+  p.sub { margin: 0 0 8px; color: var(--dim); font-size: 0.85rem; text-align: center; max-width: 560px; }
+  #board {
+    background: #010409;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-items: center;
+    justify-content: center;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 18px;
+    font-size: 0.85rem;
+  }
+  .panel label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .stat { display: flex; flex-direction: column; align-items: center; min-width: 64px; }
+  .stat b { font-size: 1.05rem; color: var(--snake-head); }
+  .stat span { color: var(--dim); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  button {
+    background: #21262d;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  button:hover { background: #30363d; }
+  input[type="range"] { accent-color: var(--snake); }
+</style>
+</head>
+<body>
+<h1>🐍 Hamiltonian Snake</h1>
+<p class="sub">
+  This snake never loses. It walks a precomputed Hamiltonian cycle &mdash; a single closed
+  loop touching every cell exactly once &mdash; so its body is always a contiguous arc of that
+  loop and can never run into itself. Slow, but a mathematically guaranteed win: it will
+  eventually eat every apple and fill the entire board.
+</p>
+
+<canvas id="board"></canvas>
+
+<div class="panel">
+  <div class="stat"><b id="statApples">0</b><span>apples eaten</span></div>
+  <div class="stat"><b id="statMoves">0</b><span>moves</span></div>
+  <div class="stat"><b id="statCoverage">0%</b><span>board filled</span></div>
+  <div class="stat"><b id="statLap">0</b><span>full laps</span></div>
+</div>
+
+<div class="panel">
+  <button id="pauseBtn">Pause</button>
+  <button id="resetBtn">Reset</button>
+  <label><input type="checkbox" id="pathToggle" checked> show cycle path</label>
+  <label>speed
+    <input type="range" id="speed" min="1" max="60" value="20">
+  </label>
+</div>
+
+<script>
+(function () {
+  const W = 20, H = 20, CELL = 22;
+  const canvas = document.getElementById("board");
+  canvas.width = W * CELL;
+  canvas.height = H * CELL;
+  const ctx = canvas.getContext("2d");
+
+  // --- Build a Hamiltonian cycle over the W x H grid (W must be even). ---
+  // Column 0 goes straight down. Each remaining column zig-zags between
+  // row 1 and row H-1 (never touching row 0). Row 0 is then walked back
+  // right-to-left to close the loop. Every step is to an orthogonal
+  // neighbor and every cell is visited exactly once.
+  function buildCycle(w, h) {
+    const path = [];
+    for (let y = 0; y < h; y++) path.push([0, y]);
+    let currentY = h - 1;
+    for (let x = 1; x < w; x++) {
+      path.push([x, currentY]);
+      if (x % 2 === 1) {
+        for (let y = currentY - 1; y >= 1; y--) path.push([x, y]);
+        currentY = 1;
+      } else {
+        for (let y = currentY + 1; y <= h - 1; y++) path.push([x, y]);
+        currentY = h - 1;
+      }
+    }
+    path.push([w - 1, 0]);
+    for (let x = w - 2; x >= 1; x--) path.push([x, 0]);
+    return path;
+  }
+
+  const cycle = buildCycle(W, H); // cycle[i] = [x, y]
+  const N = cycle.length;
+  const indexOf = new Map();
+  cycle.forEach(([x, y], i) => indexOf.set(y * W + x, i));
+
+  const APPLE_COUNT = 4; // multiple apples on the board at once, so growth is visible without waiting a full 400-cell lap per apple
+  let headIndex, length, appleSet, moves, applesEaten, laps;
+
+  function cellAt(i) { return cycle[((i % N) + N) % N]; }
+
+  function randomEmptyCellIndex() {
+    // occupied cycle indices are the contiguous arc (headIndex - length + 1 .. headIndex)
+    const occupiedStart = headIndex - length + 1;
+    let idx;
+    do {
+      idx = Math.floor(Math.random() * N);
+      const rel = ((idx - occupiedStart) % N + N) % N;
+      if (rel >= length && !appleSet.has(idx)) return idx;
+    } while (true);
+  }
+
+  function reset() {
+    headIndex = 0;
+    length = 3;
+    moves = 0;
+    applesEaten = 0;
+    laps = 0;
+    appleSet = new Set();
+    for (let k = 0; k < APPLE_COUNT && appleSet.size < N - length; k++) {
+      appleSet.add(randomEmptyCellIndex());
+    }
+    render();
+    updateStats();
+  }
+
+  function step() {
+    headIndex = (headIndex + 1) % N;
+    moves++;
+    if (headIndex === 0) laps++;
+    if (appleSet.has(headIndex)) {
+      appleSet.delete(headIndex);
+      length = Math.min(length + 1, N);
+      applesEaten++;
+      if (length < N) appleSet.add(randomEmptyCellIndex());
+    }
+    render();
+    updateStats();
+  }
+
+  function updateStats() {
+    document.getElementById("statApples").textContent = applesEaten;
+    document.getElementById("statMoves").textContent = moves;
+    document.getElementById("statCoverage").textContent =
+      Math.round((length / N) * 100) + "%";
+    document.getElementById("statLap").textContent = laps;
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (document.getElementById("pathToggle").checked) {
+      ctx.strokeStyle = "#21262d";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i < N; i++) {
+        const [x1, y1] = cellAt(i);
+        const [x2, y2] = cellAt(i + 1);
+        ctx.moveTo(x1 * CELL + CELL / 2, y1 * CELL + CELL / 2);
+        ctx.lineTo(x2 * CELL + CELL / 2, y2 * CELL + CELL / 2);
+      }
+      ctx.stroke();
+    }
+
+    // apples
+    ctx.fillStyle = "#f85149";
+    for (const a of appleSet) {
+      const [ax, ay] = cellAt(a);
+      ctx.beginPath();
+      ctx.arc(ax * CELL + CELL / 2, ay * CELL + CELL / 2, CELL * 0.32, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // snake body, tail -> head, fading gradient
+    for (let k = 0; k < length; k++) {
+      const i = headIndex - length + 1 + k;
+      const [x, y] = cellAt(i);
+      const t = k / Math.max(1, length - 1);
+      const isHead = k === length - 1;
+      ctx.fillStyle = isHead ? "#7ee787" : shade(t);
+      const pad = isHead ? 1 : 2;
+      ctx.fillRect(x * CELL + pad, y * CELL + pad, CELL - pad * 2, CELL - pad * 2);
+    }
+  }
+
+  function shade(t) {
+    // interpolate dim green -> bright green along the body
+    const r1 = 35, g1 = 90, b1 = 45;
+    const r2 = 63, g2 = 185, b2 = 80;
+    const r = Math.round(r1 + (r2 - r1) * t);
+    const g = Math.round(g1 + (g2 - g1) * t);
+    const b = Math.round(b1 + (b2 - b1) * t);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  // --- animation loop ---
+  let running = true;
+  let acc = 0;
+  let last = null;
+
+  function frame(ts) {
+    if (last === null) last = ts;
+    const dt = ts - last;
+    last = ts;
+    if (running) {
+      const speed = Number(document.getElementById("speed").value); // steps per second
+      const interval = 1000 / speed;
+      acc += dt;
+      while (acc >= interval) {
+        step();
+        acc -= interval;
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  document.getElementById("pauseBtn").addEventListener("click", (e) => {
+    running = !running;
+    e.target.textContent = running ? "Pause" : "Resume";
+  });
+  document.getElementById("resetBtn").addEventListener("click", reset);
+  document.getElementById("pathToggle").addEventListener("change", render);
+
+  reset();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
