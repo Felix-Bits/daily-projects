@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Physarum Slime Mold</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0; height: 100%; background: #05070a; color: #d6e6e0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; overflow: hidden;
+  }
+  h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.04em; margin: 6px 0 0; color: #9fe6c0; }
+  #sub { font-size: 12px; color: #6d8c85; margin-bottom: 2px; text-align: center; max-width: 640px; }
+  canvas {
+    image-rendering: pixelated;
+    border: 1px solid #1c2b28;
+    box-shadow: 0 0 40px rgba(60, 220, 160, 0.08);
+  }
+  #controls {
+    display: flex; gap: 14px; flex-wrap: wrap; justify-content: center;
+    font-size: 12px; color: #a9c4bd; max-width: 700px;
+  }
+  #controls label { display: flex; align-items: center; gap: 5px; }
+  button {
+    background: #10201b; color: #9fe6c0; border: 1px solid #234037;
+    padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+  button:hover { background: #16302a; }
+  select { background: #10201b; color: #9fe6c0; border: 1px solid #234037; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>PHYSARUM &mdash; SLIME MOLD SIMULATION</h1>
+<div id="sub">30,000 blind agents sense pheromone left/center/right and turn toward the strongest trail. No agent knows the network exists &mdash; it emerges anyway.</div>
+<canvas id="c" width="480" height="300"></canvas>
+<div id="controls">
+  <label>Preset
+    <select id="preset">
+      <option value="network">Transport network</option>
+      <option value="veins">Veins</option>
+      <option value="swarm">Chaotic swarm</option>
+      <option value="bloom">Radial bloom</option>
+    </select>
+  </label>
+  <button id="reset">Restart</button>
+  <label><input type="checkbox" id="color" checked> color trail</label>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const W = 240, H = 150;               // simulation grid resolution
+  const DISPLAY_SCALE = 2;               // canvas is drawn at W*2 x H*2
+  const canvas = document.getElementById("c");
+  canvas.width = W * DISPLAY_SCALE;
+  canvas.height = H * DISPLAY_SCALE;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+
+  const simCanvas = document.createElement("canvas");
+  simCanvas.width = W; simCanvas.height = H;
+  const simCtx = simCanvas.getContext("2d");
+  const imgData = simCtx.createImageData(W, H);
+
+  const PRESETS = {
+    network: { n: 30000, sensorDist: 9,  sensorAngle: 0.45, turnAngle: 0.40, step: 1.0, deposit: 1.6, decay: 0.05, seed: "field" },
+    veins:   { n: 35000, sensorDist: 6,  sensorAngle: 0.30, turnAngle: 0.25, step: 0.8, deposit: 1.4, decay: 0.04, seed: "field" },
+    swarm:   { n: 20000, sensorDist: 12, sensorAngle: 1.10, turnAngle: 0.90, step: 1.4, deposit: 1.8, decay: 0.09, seed: "field" },
+    bloom:   { n: 25000, sensorDist: 10, sensorAngle: 0.40, turnAngle: 0.35, step: 1.0, deposit: 1.8, decay: 0.05, seed: "circle" },
+  };
+
+  let trail = new Float32Array(W * H);
+  let trailNext = new Float32Array(W * H);
+  let agentsX, agentsY, agentsA;
+  let cfg = PRESETS.network;
+  let colorize = true;
+
+  function idx(x, y) { return y * W + x; }
+
+  function initAgents(n, seed) {
+    agentsX = new Float32Array(n);
+    agentsY = new Float32Array(n);
+    agentsA = new Float32Array(n);
+    if (seed === "circle") {
+      // seed in a filled circle at the center, random headings -> radial expansion
+      const cx = W / 2, cy = H / 2, r = Math.min(W, H) * 0.4;
+      for (let i = 0; i < n; i++) {
+        const rad = Math.sqrt(Math.random()) * r;
+        const ang = Math.random() * Math.PI * 2;
+        agentsX[i] = cx + Math.cos(ang) * rad;
+        agentsY[i] = cy + Math.sin(ang) * rad;
+        agentsA[i] = Math.random() * Math.PI * 2;
+      }
+    } else {
+      // scatter uniformly across the whole field -> independent local trails merge into a network
+      for (let i = 0; i < n; i++) {
+        agentsX[i] = Math.random() * W;
+        agentsY[i] = Math.random() * H;
+        agentsA[i] = Math.random() * Math.PI * 2;
+      }
+    }
+    trail.fill(0);
+    trailNext.fill(0);
+  }
+
+  function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+  const MAX_TRAIL = 60; // caps positive feedback so one path can't run away unbounded
+
+  function sense(x, y, angle) {
+    const sx = clamp(Math.round(x + Math.cos(angle) * cfg.sensorDist), 0, W - 1);
+    const sy = clamp(Math.round(y + Math.sin(angle) * cfg.sensorDist), 0, H - 1);
+    return trail[idx(sx, sy)];
+  }
+
+  function step() {
+    const n = agentsX.length;
+    for (let i = 0; i < n; i++) {
+      const x = agentsX[i], y = agentsY[i], a = agentsA[i];
+
+      const fwd = sense(x, y, a);
+      const left = sense(x, y, a - cfg.sensorAngle);
+      const right = sense(x, y, a + cfg.sensorAngle);
+
+      let newA = a;
+      if (fwd > left && fwd > right) {
+        // keep heading
+      } else if (fwd < left && fwd < right) {
+        newA += (Math.random() < 0.5 ? -1 : 1) * cfg.turnAngle;
+      } else if (left > right) {
+        newA -= cfg.turnAngle;
+      } else if (right > left) {
+        newA += cfg.turnAngle;
+      }
+      newA += (Math.random() - 0.5) * 0.05; // small jitter so trails don't lock rigidly
+
+      // bounded dish: agents bounce off the walls instead of wrapping around,
+      // which keeps the network from collapsing into one periodic wraparound stripe
+      let dx = Math.cos(newA), dy = Math.sin(newA);
+      let nx = x + dx * cfg.step;
+      let ny = y + dy * cfg.step;
+      if (nx < 0 || nx >= W) { dx = -dx; nx = clamp(x + dx * cfg.step, 0, W - 1); }
+      if (ny < 0 || ny >= H) { dy = -dy; ny = clamp(y + dy * cfg.step, 0, H - 1); }
+      newA = Math.atan2(dy, dx);
+
+      agentsX[i] = nx;
+      agentsY[i] = ny;
+      agentsA[i] = newA;
+
+      const p = idx(Math.round(nx), Math.round(ny));
+      trail[p] = Math.min(MAX_TRAIL, trail[p] + cfg.deposit);
+    }
+
+    // diffuse (3x3 box blur, edges clamped not wrapped) + decay into trailNext, then swap
+    for (let y = 0; y < H; y++) {
+      const yu = Math.max(0, y - 1), yd = Math.min(H - 1, y + 1);
+      for (let x = 0; x < W; x++) {
+        const xl = Math.max(0, x - 1), xr = Math.min(W - 1, x + 1);
+        const sum =
+          trail[idx(xl, yu)] + trail[idx(x, yu)] + trail[idx(xr, yu)] +
+          trail[idx(xl, y)]  + trail[idx(x, y)]  + trail[idx(xr, y)] +
+          trail[idx(xl, yd)] + trail[idx(x, yd)] + trail[idx(xr, yd)];
+        trailNext[idx(x, y)] = (sum / 9) * (1 - cfg.decay);
+      }
+    }
+    const tmp = trail; trail = trailNext; trailNext = tmp;
+  }
+
+  function render() {
+    const data = imgData.data;
+    for (let p = 0; p < W * H; p++) {
+      const v = Math.min(1, trail[p] / 40);
+      const o = p * 4;
+      if (colorize) {
+        // dark teal -> green -> pale yellow, by intensity
+        data[o]     = 20 + v * 210;
+        data[o + 1] = 40 + v * 200;
+        data[o + 2] = 55 + v * 90 - v * v * 60;
+      } else {
+        const g = 10 + v * 235;
+        data[o] = g; data[o + 1] = g; data[o + 2] = g;
+      }
+      data[o + 3] = 255;
+    }
+    simCtx.putImageData(imgData, 0, 0);
+    ctx.drawImage(simCanvas, 0, 0, canvas.width, canvas.height);
+  }
+
+  let running = true;
+  function loop() {
+    if (!running) return;
+    step();
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  function restart() {
+    const name = document.getElementById("preset").value;
+    cfg = PRESETS[name];
+    initAgents(cfg.n, cfg.seed);
+  }
+
+  document.getElementById("reset").addEventListener("click", restart);
+  document.getElementById("preset").addEventListener("change", restart);
+  document.getElementById("color").addEventListener("change", (e) => { colorize = e.target.checked; });
+
+  restart();
+  loop();
+})();
+</script>
+</body>
+</html>
