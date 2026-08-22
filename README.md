@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-08-22 — Fourier Epicycles](2026-08-22-fourier-epicycles/) — canvas toy where a Discrete Fourier Transform turns any freehand-drawn shape into a chain of rotating circles whose tip-to-tail sum traces it back, biggest circles first
 - [2026-08-21 — Physarum Slime Mold](2026-08-21-physarum-slime/) — canvas agent-based simulation where 30,000 blind agents sensing only three points of pheromone trail ahead of them self-organize into branching, near-minimal transport networks, with no agent aware a network exists at all
 - [2026-08-20 — Hamiltonian Snake](2026-08-20-hamiltonian-snake/) — a Snake AI that can't lose: it precomputes a Hamiltonian cycle through the whole grid and just walks the loop forever, so its body is always a contiguous arc that can never collide with itself, guaranteeing it eventually eats every apple and fills the board
 - [2026-08-19 — Turmite Zoo](2026-08-19-turmite-zoo/) — canvas toy for Langton's-Ant-style turmites where the same one-line update rule, given six different state strings, either sprawls into endless noise, stays a contained chaotic blob, grows filled triangles, or (in the classic case) spends ~10,000 steps looking random before locking onto a diagonal highway forever

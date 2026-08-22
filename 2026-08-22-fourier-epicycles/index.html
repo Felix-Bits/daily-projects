@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fourier Epicycles</title>
+<style>
+  html, body {
+    margin: 0; height: 100%;
+    background: #0d0f14; color: #dfe6f0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    overflow: hidden;
+  }
+  h1 { font-size: 15px; font-weight: 600; margin: 12px 0 2px; letter-spacing: 0.02em; color: #9fb4d0; }
+  p.sub { margin: 0 0 8px; font-size: 12px; color: #6b7688; }
+  #wrap { position: relative; }
+  canvas {
+    background: #11141b;
+    border: 1px solid #262c38;
+    border-radius: 6px;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  #controls {
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    margin: 10px 0 16px; font-size: 12px; color: #9aa7ba;
+  }
+  #controls label { display: flex; align-items: center; gap: 6px; }
+  input[type=range] { width: 130px; }
+  button {
+    background: #1c212c; color: #dfe6f0; border: 1px solid #333c4c;
+    border-radius: 5px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+  }
+  button:hover { background: #262d3a; }
+  #hint {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: #55627a; pointer-events: none;
+    transition: opacity 0.4s;
+  }
+</style>
+</head>
+<body>
+<h1>FOURIER EPICYCLES</h1>
+<p class="sub">rotating circles summed from a Fourier series trace out whatever you draw</p>
+<div id="wrap">
+  <canvas id="c" width="700" height="500"></canvas>
+  <div id="hint">click and drag to draw a closed-ish shape</div>
+</div>
+<div id="controls">
+  <label>circles <input id="numCircles" type="range" min="1" max="150" value="40"><span id="numCirclesVal">40</span></label>
+  <label>speed <input id="speed" type="range" min="1" max="20" value="4"><span id="speedVal">4</span></label>
+  <button id="demoBtn">Demo shape</button>
+  <button id="clearBtn">Clear &amp; draw your own</button>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const N = 200; // resample resolution
+
+let fourier = [];      // sorted DFT terms {freq, amp, phase}
+let numCircles = 40;
+let speed = 4;
+let time = 0;
+let trace = [];
+let originalPath = [];  // faint reference of the resampled input, for comparison
+let drawing = false;
+let rawPoints = [];
+
+const numCirclesEl = document.getElementById('numCircles');
+const speedEl = document.getElementById('speed');
+const numCirclesVal = document.getElementById('numCirclesVal');
+const speedVal = document.getElementById('speedVal');
+const hint = document.getElementById('hint');
+
+numCirclesEl.addEventListener('input', () => {
+  numCircles = +numCirclesEl.value;
+  numCirclesVal.textContent = numCircles;
+});
+speedEl.addEventListener('input', () => {
+  speed = +speedEl.value;
+  speedVal.textContent = speed;
+});
+
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+// Resample a freehand path to N points equally spaced by arc length.
+function resample(points, count) {
+  if (points.length < 2) return null;
+  const cum = [0];
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    total += dist(points[i - 1], points[i]);
+    cum.push(total);
+  }
+  if (total < 1) return null;
+  const result = [];
+  for (let i = 0; i < count; i++) {
+    const target = total * i / count;
+    let idx = 0;
+    while (idx < cum.length - 2 && cum[idx + 1] < target) idx++;
+    const segLen = cum[idx + 1] - cum[idx] || 1;
+    const t = (target - cum[idx]) / segLen;
+    const p0 = points[idx], p1 = points[idx + 1] || p0;
+    result.push({ x: p0.x + (p1.x - p0.x) * t, y: p0.y + (p1.y - p0.y) * t });
+  }
+  return result;
+}
+
+// Discrete Fourier Transform of a complex sequence (x[n] as real, y[n] as imaginary).
+// Each output term is one rotating vector (an "epicycle") in the reconstruction.
+function DFT(points) {
+  const n = points.length;
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    let re = 0, im = 0;
+    for (let t = 0; t < n; t++) {
+      const phi = (2 * Math.PI * k * t) / n;
+      re += points[t].x * Math.cos(phi) + points[t].y * Math.sin(phi);
+      im += -points[t].x * Math.sin(phi) + points[t].y * Math.cos(phi);
+    }
+    re /= n; im /= n;
+    out.push({
+      freq: k > n / 2 ? k - n : k,
+      amp: Math.hypot(re, im),
+      phase: Math.atan2(im, re),
+    });
+  }
+  out.sort((a, b) => b.amp - a.amp);
+  return out;
+}
+
+function setPath(points) {
+  originalPath = points;
+  fourier = DFT(points);
+  time = 0;
+  trace = [];
+}
+
+// Classic parametric heart curve, used as the default demo shape.
+function heartShape() {
+  const pts = [];
+  for (let i = 0; i < N; i++) {
+    const t = (i / N) * Math.PI * 2;
+    const x = 16 * Math.pow(Math.sin(t), 3);
+    const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+    pts.push({ x: W / 2 + x * 13, y: H / 2 + y * 13 - 20 });
+  }
+  return pts;
+}
+
+function loadDemo() {
+  setPath(heartShape());
+  numCirclesEl.value = 40; numCircles = 40; numCirclesVal.textContent = 40;
+}
+
+document.getElementById('demoBtn').addEventListener('click', loadDemo);
+document.getElementById('clearBtn').addEventListener('click', () => {
+  fourier = []; originalPath = []; trace = []; rawPoints = []; time = 0;
+  hint.style.opacity = 1;
+});
+
+// --- freehand drawing ---
+function pos(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+canvas.addEventListener('pointerdown', (e) => {
+  drawing = true;
+  fourier = []; trace = []; time = 0;
+  rawPoints = [pos(e)];
+  hint.style.opacity = 0;
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!drawing) return;
+  rawPoints.push(pos(e));
+});
+window.addEventListener('pointerup', () => {
+  if (!drawing) return;
+  drawing = false;
+  const resampled = resample(rawPoints, N);
+  if (resampled) {
+    setPath(resampled);
+    numCirclesEl.value = Math.min(150, Math.max(10, Math.floor(N / 3)));
+    numCircles = +numCirclesEl.value;
+    numCirclesVal.textContent = numCircles;
+  }
+});
+
+function drawFrame() {
+  ctx.clearRect(0, 0, W, H);
+
+  if (drawing) {
+    ctx.strokeStyle = '#4c8dff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    rawPoints.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+    ctx.stroke();
+  }
+
+  if (fourier.length) {
+    // faint reference of the target shape
+    ctx.strokeStyle = 'rgba(150,165,190,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    originalPath.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+    ctx.closePath();
+    ctx.stroke();
+
+    // sum the epicycles up to the requested count
+    let x = 0, y = 0;
+    const count = Math.min(numCircles, fourier.length);
+    ctx.strokeStyle = 'rgba(120,140,170,0.35)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < count; i++) {
+      const prevx = x, prevy = y;
+      const { freq, amp, phase } = fourier[i];
+      x += amp * Math.cos(freq * time + phase);
+      y += amp * Math.sin(freq * time + phase);
+      if (amp > 0.6) {
+        ctx.beginPath();
+        ctx.arc(prevx, prevy, amp, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(prevx, prevy);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+
+    trace.unshift({ x, y });
+    if (trace.length > N + 5) trace.pop();
+
+    ctx.strokeStyle = '#7fd4ff';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    trace.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffd27f';
+    ctx.beginPath();
+    ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    const dt = (Math.PI * 2 * speed) / (N * 20);
+    time += dt;
+    if (time > Math.PI * 2) {
+      time -= Math.PI * 2;
+      trace = [];
+    }
+  }
+
+  requestAnimationFrame(drawFrame);
+}
+
+loadDemo();
+requestAnimationFrame(drawFrame);
+</script>
+</body>
+</html>
