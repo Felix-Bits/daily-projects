@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Consistent Hashing Ring</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #171a23;
+    --ink: #e8eaf2;
+    --muted: #8890a4;
+    --accent: #5eead4;
+    --accent2: #f472b6;
+    --line: #2a2e3d;
+    --moved: #f87171;
+    --stable: #34d399;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 60px;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; max-width: 640px; text-align: center; font-size: 0.92rem; }
+  .layout {
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: flex-start;
+    max-width: 1100px;
+    width: 100%;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  #ringWrap { position: relative; }
+  canvas { display: block; }
+  .controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+    justify-content: center;
+  }
+  button {
+    background: #232838;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover { background: #2c3244; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .stats { width: 320px; min-width: 260px; }
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.88rem;
+  }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-label { color: var(--muted); }
+  .bar-group { margin-top: 14px; }
+  .bar-title { font-size: 0.8rem; color: var(--muted); margin-bottom: 6px; }
+  .bar-track {
+    height: 22px;
+    background: #1c2030;
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex;
+  }
+  .bar-fill { height: 100%; display: flex; align-items: center; justify-content: flex-end; padding-right: 6px; font-size: 0.72rem; color: #0b0d12; font-weight: 600; white-space: nowrap; }
+  .bar-consistent { background: var(--stable); }
+  .bar-naive { background: var(--moved); }
+  .legend { display: flex; gap: 16px; margin-top: 12px; font-size: 0.78rem; color: var(--muted); flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .log {
+    margin-top: 14px;
+    font-size: 0.78rem;
+    color: var(--muted);
+    max-height: 120px;
+    overflow-y: auto;
+    line-height: 1.5;
+  }
+  .log div.moved { color: var(--moved); }
+  .log div.added { color: var(--stable); }
+  footer { color: var(--muted); font-size: 0.75rem; margin-top: 26px; text-align: center; }
+</style>
+</head>
+<body>
+  <h1>Consistent Hashing Ring</h1>
+  <p class="sub">
+    Nodes and keys both land on the same hash ring; a key belongs to the next node clockwise.
+    Add or remove a node and watch how <em>few</em> keys actually move &mdash; then compare against
+    naive <code>hash(key) % N</code> hashing, where almost everything moves every time.
+  </p>
+
+  <div class="layout">
+    <div class="panel" id="ringWrap">
+      <canvas id="ring" width="480" height="480"></canvas>
+      <div class="controls">
+        <button id="addNode">+ Add node</button>
+        <button id="removeNode">&minus; Remove node</button>
+        <button id="addKey">+ Add key</button>
+        <button id="reset">Reset</button>
+      </div>
+      <div class="legend">
+        <span><span class="dot" style="background:var(--accent)"></span>node (+ 3 virtual points)</span>
+        <span><span class="dot" style="background:var(--accent2)"></span>key</span>
+        <span><span class="dot" style="background:var(--moved)"></span>moved on last change</span>
+      </div>
+    </div>
+
+    <div class="panel stats">
+      <div class="stat-row"><span class="stat-label">Nodes</span><span id="statNodes">0</span></div>
+      <div class="stat-row"><span class="stat-label">Keys</span><span id="statKeys">0</span></div>
+      <div class="stat-row"><span class="stat-label">Last action</span><span id="statAction">&mdash;</span></div>
+      <div class="stat-row"><span class="stat-label">Consistent hashing: keys moved</span><span id="statConsistent">0</span></div>
+      <div class="stat-row"><span class="stat-label">Naive mod-N: keys moved</span><span id="statNaive">0</span></div>
+
+      <div class="bar-group">
+        <div class="bar-title">% of keys remapped by this change</div>
+        <div class="bar-track"><div class="bar-fill bar-consistent" id="barConsistent" style="width:0%">0%</div></div>
+        <div class="bar-track" style="margin-top:6px"><div class="bar-fill bar-naive" id="barNaive" style="width:0%">0%</div></div>
+      </div>
+
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+  <footer>Pure HTML/CSS/JS, no dependencies. Hash = FNV-1a mapped onto a 32-bit ring.</footer>
+
+<script>
+// ---- FNV-1a hash, 32-bit, with a murmur3-style fmix32 finalizer ----
+// FNV-1a alone diffuses trailing bytes poorly: strings that only differ in
+// their last character or two (like "node-A#0" vs "node-A#1") land very
+// close together on the ring instead of spreading out. The finalizer forces
+// a full bit avalanche so virtual points/keys distribute uniformly.
+function hash32(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0; // unsigned
+}
+
+const RING_MAX = 0xFFFFFFFF;
+const VIRTUAL_PER_NODE = 3;
+
+const NODE_NAMES = ["node-A", "node-B", "node-C", "node-D", "node-E", "node-F", "node-G", "node-H"];
+const KEY_POOL = [
+  "user:42", "user:107", "user:9981", "session:aa1", "session:bb7", "cart:x12",
+  "cart:y99", "order:501", "order:502", "order:9001", "img:cat.png", "img:dog.png",
+  "doc:readme", "doc:spec", "cache:home", "cache:feed", "event:login", "event:click",
+  "job:report-1", "job:report-2", "user:8", "user:15", "session:cc3", "cart:z55",
+  "order:9002", "img:sky.png", "doc:notes", "cache:profile", "event:signup", "job:cleanup"
+];
+
+let nodes = [];       // { name, angle, color }
+let keys = [];        // { name, angle }
+let nextNodeIdx = 0;
+let nextKeyIdx = 0;
+let lastMoved = new Set(); // key names moved by the most recent action
+
+const nodeColorBase = [94, 234, 212]; // accent teal
+
+function nodeVirtualAngles(name) {
+  const angles = [];
+  for (let v = 0; v < VIRTUAL_PER_NODE; v++) {
+    const h = hash32(name + "#" + v);
+    angles.push((h / RING_MAX) * Math.PI * 2);
+  }
+  return angles;
+}
+
+function keyAngle(name) {
+  const h = hash32(name);
+  return (h / RING_MAX) * Math.PI * 2;
+}
+
+// find owning node for a key angle: the node whose *nearest virtual point clockwise* wins
+function ownerOf(keyAng, nodeList) {
+  if (nodeList.length === 0) return null;
+  let allPoints = [];
+  for (const n of nodeList) {
+    for (const a of n.virtualAngles) allPoints.push({ name: n.name, angle: a });
+  }
+  allPoints.sort((a, b) => a.angle - b.angle);
+  for (const p of allPoints) {
+    if (p.angle >= keyAng) return p.name;
+  }
+  return allPoints[0].name; // wrap around
+}
+
+function naiveOwnerOf(keyName, n) {
+  if (n === 0) return null;
+  const h = hash32(keyName);
+  return h % n; // index into a *sorted list order* — order = insertion order, mimics real naive sharding
+}
+
+function currentConsistentAssignment() {
+  const map = {};
+  for (const k of keys) map[k.name] = ownerOf(k.angle, nodes);
+  return map;
+}
+
+function currentNaiveAssignment() {
+  const map = {};
+  for (const k of keys) map[k.name] = naiveOwnerOf(k.name, nodes.length);
+  return map;
+}
+
+let prevConsistent = {};
+let prevNaive = {};
+
+function logMsg(text, cls) {
+  const log = document.getElementById("log");
+  const div = document.createElement("div");
+  if (cls) div.className = cls;
+  div.textContent = text;
+  log.prepend(div);
+  while (log.children.length > 40) log.removeChild(log.lastChild);
+}
+
+function addNode() {
+  if (nodes.length >= NODE_NAMES.length) return;
+  const name = NODE_NAMES[nextNodeIdx++];
+  const virtualAngles = nodeVirtualAngles(name);
+  nodes.push({ name, virtualAngles });
+  applyChange(`Added ${name}`);
+}
+
+function removeNode() {
+  if (nodes.length === 0) return;
+  const removed = nodes.pop();
+  applyChange(`Removed ${removed.name}`);
+}
+
+function addKey() {
+  if (nextKeyIdx >= KEY_POOL.length) return;
+  const name = KEY_POOL[nextKeyIdx++];
+  keys.push({ name, angle: keyAngle(name) });
+  applyChange(`Added key ${name}`, true);
+}
+
+function applyChange(actionLabel, isKeyAdd) {
+  const newConsistent = currentConsistentAssignment();
+  const newNaive = currentNaiveAssignment();
+
+  let movedConsistent = 0, movedNaive = 0;
+  lastMoved = new Set();
+  let totalTracked = 0;
+
+  for (const k of keys) {
+    const hadPrevC = Object.prototype.hasOwnProperty.call(prevConsistent, k.name);
+    const hadPrevN = Object.prototype.hasOwnProperty.call(prevNaive, k.name);
+    if (hadPrevC || hadPrevN) totalTracked++;
+    if (hadPrevC && prevConsistent[k.name] !== newConsistent[k.name]) {
+      movedConsistent++;
+      lastMoved.add(k.name);
+    }
+    if (hadPrevN && prevNaive[k.name] !== newNaive[k.name]) {
+      movedNaive++;
+    }
+  }
+
+  const pctC = totalTracked ? Math.round((movedConsistent / totalTracked) * 100) : 0;
+  const pctN = totalTracked ? Math.round((movedNaive / totalTracked) * 100) : 0;
+
+  document.getElementById("statNodes").textContent = nodes.length;
+  document.getElementById("statKeys").textContent = keys.length;
+  document.getElementById("statAction").textContent = actionLabel;
+  document.getElementById("statConsistent").textContent = movedConsistent;
+  document.getElementById("statNaive").textContent = movedNaive;
+
+  const barC = document.getElementById("barConsistent");
+  const barN = document.getElementById("barNaive");
+  barC.style.width = pctC + "%";
+  barC.textContent = pctC + "%";
+  barN.style.width = pctN + "%";
+  barN.textContent = pctN + "%";
+
+  if (!isKeyAdd) {
+    logMsg(`${actionLabel} → consistent: ${movedConsistent}/${totalTracked} keys moved (${pctC}%), naive mod-N: ${movedNaive}/${totalTracked} (${pctN}%)`, movedConsistent > 0 ? "moved" : "added");
+  } else {
+    logMsg(actionLabel, "added");
+  }
+
+  prevConsistent = newConsistent;
+  prevNaive = newNaive;
+
+  document.getElementById("removeNode").disabled = nodes.length === 0;
+  document.getElementById("addNode").disabled = nodes.length >= NODE_NAMES.length;
+  document.getElementById("addKey").disabled = nextKeyIdx >= KEY_POOL.length;
+
+  draw();
+}
+
+// ---- rendering ----
+const canvas = document.getElementById("ring");
+const ctx = canvas.getContext("2d");
+const CX = 240, CY = 240, R = 190;
+
+function polar(angle, radius) {
+  return [CX + Math.cos(angle - Math.PI / 2) * radius, CY + Math.sin(angle - Math.PI / 2) * radius];
+}
+
+function draw() {
+  ctx.clearRect(0, 0, 480, 480);
+
+  // ring
+  ctx.strokeStyle = "#2a2e3d";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(CX, CY, R, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const assignment = currentConsistentAssignment();
+
+  // draw arcs of ownership (colored faint wedge from each virtual point back to previous point)
+  let allPoints = [];
+  for (const n of nodes) {
+    for (const a of n.virtualAngles) allPoints.push({ name: n.name, angle: a });
+  }
+  allPoints.sort((a, b) => a.angle - b.angle);
+
+  const nodeColors = {};
+  nodes.forEach((n, i) => {
+    const hue = (i * 47) % 360;
+    nodeColors[n.name] = `hsl(${hue}, 70%, 60%)`;
+  });
+
+  if (allPoints.length > 0) {
+    for (let i = 0; i < allPoints.length; i++) {
+      const start = i === 0 ? allPoints[allPoints.length - 1].angle - Math.PI * 2 : allPoints[i - 1].angle;
+      const end = allPoints[i].angle;
+      ctx.beginPath();
+      ctx.moveTo(CX, CY);
+      ctx.arc(CX, CY, R, start - Math.PI / 2, end - Math.PI / 2);
+      ctx.closePath();
+      ctx.fillStyle = nodeColors[allPoints[i].name];
+      ctx.globalAlpha = 0.08;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // node virtual points
+  for (const n of nodes) {
+    for (let vi = 0; vi < n.virtualAngles.length; vi++) {
+      const a = n.virtualAngles[vi];
+      const [x, y] = polar(a, R);
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = nodeColors[n.name];
+      ctx.fill();
+      ctx.strokeStyle = "#0f1117";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    // label at primary (first) virtual point
+    const [lx, ly] = polar(n.virtualAngles[0], R + 22);
+    ctx.fillStyle = nodeColors[n.name];
+    ctx.font = "11px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(n.name, lx, ly);
+  }
+
+  // keys
+  for (const k of keys) {
+    const [x, y] = polar(k.angle, R - 26);
+    const moved = lastMoved.has(k.name);
+    ctx.beginPath();
+    ctx.arc(x, y, moved ? 5.5 : 4, 0, Math.PI * 2);
+    ctx.fillStyle = moved ? "#f87171" : "#f472b6";
+    ctx.fill();
+    if (moved) {
+      ctx.strokeStyle = "#f87171";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(x, y, 9, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // center label
+  ctx.fillStyle = "#8890a4";
+  ctx.font = "12px -apple-system, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(`${nodes.length} nodes`, CX, CY - 6);
+  ctx.fillText(`${keys.length} keys`, CX, CY + 12);
+}
+
+function reset() {
+  nodes = [];
+  keys = [];
+  nextNodeIdx = 0;
+  nextKeyIdx = 0;
+  lastMoved = new Set();
+  prevConsistent = {};
+  prevNaive = {};
+  document.getElementById("log").innerHTML = "";
+
+  // seed with 3 nodes and 10 keys so the ring isn't empty on load
+  for (let i = 0; i < 3; i++) addNode();
+  for (let i = 0; i < 10; i++) addKey();
+  logMsg("Ring seeded with 3 nodes and 10 keys.", "added");
+}
+
+document.getElementById("addNode").addEventListener("click", addNode);
+document.getElementById("removeNode").addEventListener("click", removeNode);
+document.getElementById("addKey").addEventListener("click", addKey);
+document.getElementById("reset").addEventListener("click", reset);
+
+reset();
+</script>
+</body>
+</html>
