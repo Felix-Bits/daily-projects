@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wireworld</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14171c;
+    --border: #262b33;
+    --text: #d7dae0;
+    --dim: #8a919c;
+    --accent: #ffb454;
+    --empty: #05070a;
+    --cond: #6b4a1e;
+    --head: #7fe7ff;
+    --tail: #1f5fa8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 12px 40px;
+  }
+  h1 { margin: 0 0 4px; font-size: 1.4rem; letter-spacing: 0.02em; }
+  p.sub { margin: 0 0 16px; color: var(--dim); font-size: 0.9rem; max-width: 640px; text-align: center; }
+  #wrap {
+    border: 1px solid var(--border);
+    background: var(--empty);
+    border-radius: 6px;
+    overflow: hidden;
+    line-height: 0;
+    touch-action: none;
+  }
+  canvas { display: block; cursor: crosshair; }
+  #controls {
+    margin-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    max-width: 900px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .group { display: flex; align-items: center; gap: 6px; }
+  button, select {
+    background: #1c2027;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 6px 10px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--accent); }
+  button.active {
+    background: var(--accent);
+    color: #1a1200;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  label { font-size: 0.8rem; color: var(--dim); }
+  #legend {
+    margin-top: 12px;
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+    font-size: 0.78rem;
+    color: var(--dim);
+  }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  #stats { margin-top: 6px; font-size: 0.78rem; color: var(--dim); }
+</style>
+</head>
+<body>
+  <h1>Wireworld</h1>
+  <p class="sub">
+    A cellular automaton with only four cell states and one rule &mdash; yet it's Turing complete.
+    Draw copper wire, drop an electron on it, and watch it flow. Try a right-angle corner and see it misbehave;
+    real Wireworld circuits route around diagonals for a reason.
+  </p>
+
+  <div id="wrap">
+    <canvas id="grid"></canvas>
+  </div>
+
+  <div id="controls">
+    <div class="group">
+      <button id="brushCond" class="active">Wire</button>
+      <button id="brushHead">Electron</button>
+      <button id="brushErase">Erase</button>
+    </div>
+    <div class="group">
+      <button id="playBtn">▶ Play</button>
+      <button id="stepBtn">Step</button>
+      <button id="clearBtn">Clear</button>
+    </div>
+    <div class="group">
+      <label for="speed">Speed</label>
+      <input id="speed" type="range" min="1" max="30" value="8">
+    </div>
+    <div class="group">
+      <label for="preset">Preset</label>
+      <select id="preset">
+        <option value="">— load a pattern —</option>
+        <option value="pulse">Straight pulse</option>
+        <option value="clock">Diamond clock (self-sustaining)</option>
+        <option value="splitter">T-splitter</option>
+        <option value="corner">Right-angle corner (buggy!)</option>
+        <option value="clocks">Two clocks, different periods</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="legend">
+    <span><span class="swatch" style="background:var(--cond)"></span>conductor</span>
+    <span><span class="swatch" style="background:var(--head)"></span>electron head</span>
+    <span><span class="swatch" style="background:var(--tail)"></span>electron tail</span>
+    <span><span class="swatch" style="background:var(--empty);border:1px solid var(--border)"></span>empty</span>
+  </div>
+  <div id="stats">generation: <span id="gen">0</span></div>
+
+<script>
+(() => {
+  const COLS = 80, ROWS = 50, CELL = 12;
+  const EMPTY = 0, COND = 1, HEAD = 2, TAIL = 3;
+  const colors = ['#05070a', '#6b4a1e', '#7fe7ff', '#1f5fa8'];
+
+  const canvas = document.getElementById('grid');
+  canvas.width = COLS * CELL;
+  canvas.height = ROWS * CELL;
+  const ctx = canvas.getContext('2d');
+
+  let grid = new Uint8Array(COLS * ROWS);
+  let generation = 0;
+  const idx = (x, y) => y * COLS + x;
+  const inBounds = (x, y) => x >= 0 && x < COLS && y >= 0 && y < ROWS;
+
+  function step() {
+    const next = new Uint8Array(COLS * ROWS);
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        const i = idx(x, y);
+        const s = grid[i];
+        if (s === EMPTY) continue;
+        if (s === HEAD) { next[i] = TAIL; continue; }
+        if (s === TAIL) { next[i] = COND; continue; }
+        // conductor: count HEAD neighbors (Moore neighborhood)
+        let cnt = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx, ny = y + dy;
+            if (inBounds(nx, ny) && grid[idx(nx, ny)] === HEAD) cnt++;
+          }
+        }
+        next[i] = (cnt === 1 || cnt === 2) ? HEAD : COND;
+      }
+    }
+    grid = next;
+    generation++;
+  }
+
+  function draw() {
+    ctx.fillStyle = colors[EMPTY];
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        const s = grid[idx(x, y)];
+        if (s === EMPTY) continue;
+        ctx.fillStyle = colors[s];
+        ctx.fillRect(x * CELL, y * CELL, CELL - 1, CELL - 1);
+      }
+    }
+    document.getElementById('gen').textContent = generation;
+  }
+
+  // ---- brushes & drawing ----
+  let brush = COND;
+  let painting = false;
+  const brushButtons = {
+    brushCond: COND,
+    brushHead: HEAD,
+    brushErase: EMPTY,
+  };
+  for (const [id, val] of Object.entries(brushButtons)) {
+    document.getElementById(id).addEventListener('click', () => {
+      brush = val;
+      for (const otherId of Object.keys(brushButtons)) {
+        document.getElementById(otherId).classList.toggle('active', otherId === id);
+      }
+    });
+  }
+
+  function paintAt(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.floor((clientX - rect.left) / (rect.width / COLS));
+    const y = Math.floor((clientY - rect.top) / (rect.height / ROWS));
+    if (inBounds(x, y)) {
+      grid[idx(x, y)] = brush;
+      draw();
+    }
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    painting = true;
+    paintAt(e.clientX, e.clientY);
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (painting) paintAt(e.clientX, e.clientY);
+  });
+  window.addEventListener('pointerup', () => { painting = false; });
+
+  // ---- play/pause/step ----
+  let playing = false;
+  let acc = 0, lastTime = null;
+  const speedEl = document.getElementById('speed');
+  const playBtn = document.getElementById('playBtn');
+
+  function loop(t) {
+    if (lastTime === null) lastTime = t;
+    const dt = (t - lastTime) / 1000;
+    lastTime = t;
+    if (playing) {
+      acc += dt;
+      const interval = 1 / Number(speedEl.value);
+      while (acc >= interval) {
+        step();
+        acc -= interval;
+      }
+      draw();
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  playBtn.addEventListener('click', () => {
+    playing = !playing;
+    playBtn.textContent = playing ? '⏸ Pause' : '▶ Play';
+  });
+  document.getElementById('stepBtn').addEventListener('click', () => { step(); draw(); });
+  document.getElementById('clearBtn').addEventListener('click', () => {
+    grid = new Uint8Array(COLS * ROWS);
+    generation = 0;
+    draw();
+  });
+
+  // ---- presets ----
+  function clearGrid() {
+    grid = new Uint8Array(COLS * ROWS);
+    generation = 0;
+  }
+
+  function set(x, y, s) { if (inBounds(x, y)) grid[idx(x, y)] = s; }
+
+  function diamondLoop(cx, cy, r) {
+    const top = [cx, cy - r], right = [cx + r, cy], bottom = [cx, cy + r], left = [cx - r, cy];
+    function diagLine(p0, p1) {
+      const [x0, y0] = p0, [x1, y1] = p1;
+      const n = Math.abs(x1 - x0);
+      const sx = x1 > x0 ? 1 : -1, sy = y1 > y0 ? 1 : -1;
+      const pts = [];
+      for (let i = 0; i < n; i++) pts.push([x0 + i * sx, y0 + i * sy]);
+      return pts;
+    }
+    let pts = [...diagLine(top, right), ...diagLine(right, bottom), ...diagLine(bottom, left), ...diagLine(left, top)];
+    const seen = new Set();
+    const loop = [];
+    for (const [x, y] of pts) {
+      const key = x + ',' + y;
+      if (!seen.has(key)) { seen.add(key); loop.push([x, y]); }
+    }
+    for (const [x, y] of loop) set(x, y, COND);
+    const [hx, hy] = loop[0];
+    const [tx, ty] = loop[loop.length - 1];
+    set(hx, hy, HEAD);
+    set(tx, ty, TAIL);
+  }
+
+  function loadPreset(name) {
+    clearGrid();
+    if (name === 'pulse') {
+      for (let x = 5; x < COLS - 5; x++) set(x, Math.floor(ROWS / 2), COND);
+      set(5, Math.floor(ROWS / 2), HEAD);
+      set(4, Math.floor(ROWS / 2), TAIL);
+    } else if (name === 'clock') {
+      diamondLoop(Math.floor(COLS / 2), Math.floor(ROWS / 2), 16);
+    } else if (name === 'splitter') {
+      const midY = Math.floor(ROWS / 2) - 8;
+      for (let x = 4; x < COLS - 4; x++) set(x, midY, COND);
+      const branchX = Math.floor(COLS / 2);
+      for (let y = midY + 1; y < midY + 14; y++) set(branchX, y, COND);
+      set(5, midY, HEAD);
+      set(4, midY, TAIL);
+    } else if (name === 'corner') {
+      const cx = 20, cy = 15;
+      for (let x = cx; x < cx + 15; x++) set(x, cy, COND);
+      for (let y = cy; y < cy + 15; y++) set(cx, y, COND);
+      set(cx + 1, cy, HEAD);
+      set(cx, cy, TAIL);
+    } else if (name === 'clocks') {
+      diamondLoop(20, 15, 10);
+      diamondLoop(58, 34, 13);
+    }
+    draw();
+  }
+
+  document.getElementById('preset').addEventListener('change', (e) => {
+    if (e.target.value) loadPreset(e.target.value);
+    e.target.value = '';
+  });
+
+  // start with the clock preset so there's something moving on load
+  loadPreset('clock');
+})();
+</script>
+</body>
+</html>

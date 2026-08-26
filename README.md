@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-08-26 — Wireworld](2026-08-26-wireworld/) — interactive canvas simulator for the four-state, one-rule cellular automaton that's Turing complete, with a self-sustaining diagonal-loop "clock", a signal-splitting T-junction, and a right-angle corner preset that deliberately shows the classic Wireworld bug where a pulse duplicates and cancels itself
 - [2026-08-25 — Weasel Evolution](2026-08-25-weasel-evolution/) — terminal recreation of Dawkins' "Weasel" program, where mutation plus keep-the-fittest selection assembles a target phrase in under 100 generations, versus the ~10^40 tries pure random guessing would need
 - [2026-08-24 — DLA Crystal](2026-08-24-dla-crystal/) — terminal Diffusion-Limited Aggregation grower where thousands of independent random walkers freeze on contact with a growing cluster, and pure dumb luck alone produces a self-similar fractal (box-counting dimension ~1.71) instead of a blob
 - [2026-08-23 — Consistent Hashing Ring](2026-08-23-consistent-hashing-ring/) — interactive canvas visualization of consistent hashing where nodes and keys share a hash ring, live-counting how few keys move on add/remove versus naive hash(key) % N, which reshuffles almost everything
