@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-08-27 — Braille Dither](2026-08-27-braille-dither/) — dependency-free CLI that dithers a procedural test image with four classic algorithms (threshold, ordered Bayer, Floyd-Steinberg, Atkinson) and renders each as Unicode Braille art, packing 8 sub-pixels per terminal character for roughly 8x the resolution of normal block-character ASCII art
 - [2026-08-26 — Wireworld](2026-08-26-wireworld/) — interactive canvas simulator for the four-state, one-rule cellular automaton that's Turing complete, with a self-sustaining diagonal-loop "clock", a signal-splitting T-junction, and a right-angle corner preset that deliberately shows the classic Wireworld bug where a pulse duplicates and cancels itself
 - [2026-08-25 — Weasel Evolution](2026-08-25-weasel-evolution/) — terminal recreation of Dawkins' "Weasel" program, where mutation plus keep-the-fittest selection assembles a target phrase in under 100 generations, versus the ~10^40 tries pure random guessing would need
 - [2026-08-24 — DLA Crystal](2026-08-24-dla-crystal/) — terminal Diffusion-Limited Aggregation grower where thousands of independent random walkers freeze on contact with a growing cluster, and pure dumb luck alone produces a self-similar fractal (box-counting dimension ~1.71) instead of a blob
