@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-08-28 — Butterfly Pendulums](2026-08-28-butterfly-pendulums/) — canvas toy running two identical double pendulums whose starting angle differs by 0.001°, RK4-integrated so the tiny nudge visibly amplifies into totally divergent chaotic trails, with a live meter tracking how far apart their tips have drifted
 - [2026-08-27 — Braille Dither](2026-08-27-braille-dither/) — dependency-free CLI that dithers a procedural test image with four classic algorithms (threshold, ordered Bayer, Floyd-Steinberg, Atkinson) and renders each as Unicode Braille art, packing 8 sub-pixels per terminal character for roughly 8x the resolution of normal block-character ASCII art
 - [2026-08-26 — Wireworld](2026-08-26-wireworld/) — interactive canvas simulator for the four-state, one-rule cellular automaton that's Turing complete, with a self-sustaining diagonal-loop "clock", a signal-splitting T-junction, and a right-angle corner preset that deliberately shows the classic Wireworld bug where a pulse duplicates and cancels itself
 - [2026-08-25 — Weasel Evolution](2026-08-25-weasel-evolution/) — terminal recreation of Dawkins' "Weasel" program, where mutation plus keep-the-fittest selection assembles a target phrase in under 100 generations, versus the ~10^40 tries pure random guessing would need

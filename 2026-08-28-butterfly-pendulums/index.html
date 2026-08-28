@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Butterfly Pendulums</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: #131722;
+    --text: #e6e9f0;
+    --muted: #8b93a7;
+    --accent-a: #ff5e7e;
+    --accent-b: #4fd1ff;
+    --border: #232838;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 40px;
+  }
+  h1 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+  p.sub {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 0 0 18px;
+    max-width: 520px;
+    text-align: center;
+    line-height: 1.4;
+  }
+  #stage {
+    background: radial-gradient(circle at 50% 30%, #161b28 0%, #0b0e14 70%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    touch-action: none;
+  }
+  .panel {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 18px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 20px;
+    max-width: 640px;
+  }
+  .metric {
+    text-align: center;
+  }
+  .metric .label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  .metric .value {
+    font-size: 1.15rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  .swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  button {
+    background: #1c2233;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  button:hover { background: #232a40; }
+  #divBar {
+    width: 220px;
+    height: 8px;
+    background: #1c2233;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  #divFill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent-b), var(--accent-a));
+    transition: width 0.08s linear;
+  }
+  footer {
+    margin-top: 16px;
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+</style>
+</head>
+<body>
+  <h1>Butterfly Pendulums</h1>
+  <p class="sub">
+    Two identical double pendulums, released with a starting angle that differs by
+    <strong>0.001&deg;</strong> &mdash; less than the width of this period. Watch how long they stay
+    in lockstep before chaos tears them apart.
+  </p>
+
+  <canvas id="stage" width="640" height="480"></canvas>
+
+  <div class="panel">
+    <div class="metric">
+      <div class="label"><span class="swatch" style="background:var(--accent-b)"></span>Pendulum A</div>
+      <div class="value" id="timeA">&theta;&#8320; = 130.000&deg;</div>
+    </div>
+    <div class="metric">
+      <div class="label"><span class="swatch" style="background:var(--accent-a)"></span>Pendulum B</div>
+      <div class="value" id="timeB">&theta;&#8320; = 130.001&deg;</div>
+    </div>
+    <div class="metric">
+      <div class="label">Tip divergence</div>
+      <div id="divBar"><div id="divFill"></div></div>
+      <div class="value" id="divVal" style="font-size:0.8rem">0 px</div>
+    </div>
+    <div class="metric">
+      <div class="label">Elapsed</div>
+      <div class="value" id="elapsed">0.0 s</div>
+    </div>
+    <button id="resetBtn">Reset</button>
+    <button id="pauseBtn">Pause</button>
+  </div>
+
+  <footer>Click/drag on the canvas to set a new shared starting angle, then it re-releases both pendulums.</footer>
+
+<script>
+(() => {
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const originX = W / 2, originY = 110;
+
+  // Physical parameters (equal for both pendulums; only theta1 differs slightly)
+  const L1 = 110, L2 = 110;   // px, treated as length units
+  const M1 = 12, M2 = 12;     // mass (arbitrary units)
+  const G = 1000;             // gravity constant tuned for pixel-scale lengths
+
+  const EPS = 0.001 * Math.PI / 180; // 0.001 degree in radians
+
+  function makeState(theta1) {
+    return { t1: theta1, t2: theta1, w1: 0, w2: 0 };
+  }
+
+  const BASE_THETA = (130 * Math.PI) / 180;
+  let A = makeState(BASE_THETA);
+  let B = makeState(BASE_THETA + EPS);
+  let trailA = [];
+  let trailB = [];
+  let elapsed = 0;
+  let paused = false;
+
+  function derivatives(s) {
+    const { t1, t2, w1, w2 } = s;
+    const dt = t1 - t2;
+    const den1 = (2 * M1 + M2 - M2 * Math.cos(2 * dt));
+    const a1 =
+      (-G * (2 * M1 + M2) * Math.sin(t1)
+        - M2 * G * Math.sin(t1 - 2 * t2)
+        - 2 * Math.sin(dt) * M2 * (w2 * w2 * L2 + w1 * w1 * L1 * Math.cos(dt))
+      ) / (L1 * den1);
+
+    const a2 =
+      (2 * Math.sin(dt) *
+        (w1 * w1 * L1 * (M1 + M2)
+          + G * (M1 + M2) * Math.cos(t1)
+          + w2 * w2 * L2 * M2 * Math.cos(dt))
+      ) / (L2 * den1);
+
+    return { dt1: w1, dt2: w2, dw1: a1, dw2: a2 };
+  }
+
+  function rk4Step(s, dt) {
+    const k1 = derivatives(s);
+    const s2 = { t1: s.t1 + k1.dt1 * dt/2, t2: s.t2 + k1.dt2 * dt/2, w1: s.w1 + k1.dw1 * dt/2, w2: s.w2 + k1.dw2 * dt/2 };
+    const k2 = derivatives(s2);
+    const s3 = { t1: s.t1 + k2.dt1 * dt/2, t2: s.t2 + k2.dt2 * dt/2, w1: s.w1 + k2.dw1 * dt/2, w2: s.w2 + k2.dw2 * dt/2 };
+    const k3 = derivatives(s3);
+    const s4 = { t1: s.t1 + k3.dt1 * dt, t2: s.t2 + k3.dt2 * dt, w1: s.w1 + k3.dw1 * dt, w2: s.w2 + k3.dw2 * dt };
+    const k4 = derivatives(s4);
+
+    return {
+      t1: s.t1 + (dt/6) * (k1.dt1 + 2*k2.dt1 + 2*k3.dt1 + k4.dt1),
+      t2: s.t2 + (dt/6) * (k1.dt2 + 2*k2.dt2 + 2*k3.dt2 + k4.dt2),
+      w1: s.w1 + (dt/6) * (k1.dw1 + 2*k2.dw1 + 2*k3.dw1 + k4.dw1),
+      w2: s.w2 + (dt/6) * (k1.dw2 + 2*k2.dw2 + 2*k3.dw2 + k4.dw2),
+    };
+  }
+
+  function bobPositions(s) {
+    const x1 = originX + L1 * Math.sin(s.t1);
+    const y1 = originY + L1 * Math.cos(s.t1);
+    const x2 = x1 + L2 * Math.sin(s.t2);
+    const y2 = y1 + L2 * Math.cos(s.t2);
+    return { x1, y1, x2, y2 };
+  }
+
+  function drawPendulum(s, color, trail) {
+    const { x1, y1, x2, y2 } = bobPositions(s);
+    trail.push({ x: x2, y: y2 });
+    if (trail.length > 400) trail.shift();
+
+    ctx.beginPath();
+    for (let i = 0; i < trail.length; i++) {
+      const p = trail[i];
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = (i / trail.length) * 0.5;
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(originX, originY);
+    ctx.lineTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(x1, y1, 5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x2, y2, 8, 0, Math.PI*2); ctx.fill();
+
+    return { x2, y2 };
+  }
+
+  const DT = 1 / 240; // physics substep
+  const SUBSTEPS = 4; // per animation frame
+
+  function step() {
+    for (let i = 0; i < SUBSTEPS; i++) {
+      A = rk4Step(A, DT);
+      B = rk4Step(B, DT);
+      elapsed += DT;
+    }
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+
+    ctx.fillStyle = '#3a4155';
+    ctx.beginPath(); ctx.arc(originX, originY, 3, 0, Math.PI*2); ctx.fill();
+
+    const tipA = drawPendulum(A, '#4fd1ff', trailA);
+    const tipB = drawPendulum(B, '#ff5e7e', trailB);
+
+    const dx = tipA.x2 - tipB.x2, dy = tipA.y2 - tipB.y2;
+    const dist = Math.hypot(dx, dy);
+    const maxDist = (L1 + L2) * 2;
+    document.getElementById('divFill').style.width = Math.min(100, (dist / maxDist) * 100) + '%';
+    document.getElementById('divVal').textContent = dist.toFixed(1) + ' px';
+    document.getElementById('elapsed').textContent = elapsed.toFixed(1) + ' s';
+  }
+
+  function toDeg(r) { return ((r * 180 / Math.PI) % 360 + 360) % 360; }
+
+  function updateReadouts() {
+    document.getElementById('timeA').innerHTML = `&theta;&#8320; = ${toDeg(A.t1).toFixed(3)}&deg;`;
+    document.getElementById('timeB').innerHTML = `&theta;&#8320; = ${toDeg(B.t1).toFixed(3)}&deg;`;
+  }
+
+  let frameCount = 0;
+  function loop() {
+    if (!paused) {
+      step();
+      render();
+      frameCount++;
+      if (frameCount % 6 === 0) updateReadouts();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  function reset(theta1) {
+    A = makeState(theta1);
+    B = makeState(theta1 + EPS);
+    trailA = [];
+    trailB = [];
+    elapsed = 0;
+    updateReadouts();
+  }
+
+  document.getElementById('resetBtn').addEventListener('click', () => reset(BASE_THETA));
+  document.getElementById('pauseBtn').addEventListener('click', (e) => {
+    paused = !paused;
+    e.target.textContent = paused ? 'Resume' : 'Pause';
+  });
+
+  function angleFromPointer(evt) {
+    const rect = canvas.getBoundingClientRect();
+    const x = (evt.clientX - rect.left) - originX;
+    const y = (evt.clientY - rect.top) - originY;
+    return Math.atan2(x, y);
+  }
+
+  let dragging = false;
+  canvas.addEventListener('pointerdown', (evt) => {
+    dragging = true;
+    reset(angleFromPointer(evt));
+  });
+  canvas.addEventListener('pointermove', (evt) => {
+    if (dragging) reset(angleFromPointer(evt));
+  });
+  window.addEventListener('pointerup', () => dragging = false);
+
+  updateReadouts();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
