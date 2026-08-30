@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-08-30 — Schelling's Segregation Model](2026-08-30-schelling-segregation/) — interactive canvas simulation where two groups of agents each just want a modest fraction of same-type neighbors, yet even a mild 35% tolerance threshold snowballs into near-total spatial segregation within a couple dozen generations, with nobody in the system ever asking for that outcome
 - [2026-08-29 — Lloyd's Voronoi Relaxation](2026-08-29-lloyd-voronoi/) — terminal visualizer where random seed points repeatedly jump to the centroid of their own Voronoi region, watching jagged random cells relax into an even honeycomb tessellation, the same fixed point behind k-means clustering and blue-noise stipple art
 - [2026-08-28 — Butterfly Pendulums](2026-08-28-butterfly-pendulums/) — canvas toy running two identical double pendulums whose starting angle differs by 0.001°, RK4-integrated so the tiny nudge visibly amplifies into totally divergent chaotic trails, with a live meter tracking how far apart their tips have drifted
 - [2026-08-27 — Braille Dither](2026-08-27-braille-dither/) — dependency-free CLI that dithers a procedural test image with four classic algorithms (threshold, ordered Bayer, Floyd-Steinberg, Atkinson) and renders each as Unicode Braille art, packing 8 sub-pixels per terminal character for roughly 8x the resolution of normal block-character ASCII art

@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Schelling's Segregation Model</title>
+<style>
+  :root {
+    --bg: #14161c;
+    --panel: #1d2029;
+    --border: #2c3040;
+    --text: #e8e8f0;
+    --muted: #8a8fa3;
+    --a: #e0793f;
+    --b: #3f9ea0;
+    --accent: #c792ea;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 48px;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; max-width: 640px; text-align: center; font-size: 0.92rem; line-height: 1.5; }
+  .layout { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+  canvas {
+    background: #0c0d12;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    image-rendering: pixelated;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    width: 260px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .row { display: flex; flex-direction: column; gap: 4px; }
+  .row label { font-size: 0.8rem; color: var(--muted); display: flex; justify-content: space-between; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .buttons { display: flex; gap: 8px; }
+  button {
+    flex: 1;
+    background: #262a38;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  button:hover { background: #2f3444; }
+  button.primary { background: var(--accent); color: #1a1a20; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); }
+  .stats { font-size: 0.85rem; display: flex; flex-direction: column; gap: 6px; }
+  .stats .stat { display: flex; justify-content: space-between; }
+  .stats .stat b { color: var(--text); }
+  .stats .stat span { color: var(--muted); }
+  .bar { height: 8px; border-radius: 4px; background: #0c0d12; overflow: hidden; border: 1px solid var(--border); }
+  .bar > div { height: 100%; background: linear-gradient(90deg, var(--a), var(--accent), var(--b)); transition: width 0.2s; }
+  .status { font-size: 0.85rem; padding: 6px 10px; border-radius: 6px; text-align: center; }
+  .status.running { background: #2a3a2a; color: #9fdc9f; }
+  .status.stable { background: #3a2a2a; color: #dc9f9f; }
+  .legend { display: flex; gap: 14px; font-size: 0.78rem; color: var(--muted); align-items: center; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 5px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<h1>Schelling's Segregation Model</h1>
+<p class="sub">
+  Two groups of agents live on a grid. Each one only wants a modest fraction of its
+  neighbors to share its color &mdash; drag the slider low enough and most agents are
+  already happy with a totally mixed neighborhood. Yet even a mild preference, applied
+  by everyone at once, tends to snowball into near-total separation. Nobody in the
+  simulation is trying to segregate; it falls out of individually reasonable choices.
+</p>
+<div class="layout">
+  <canvas id="grid" width="600" height="600"></canvas>
+  <div class="panel">
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--a)"></span>Group A</span>
+      <span><span class="swatch" style="background:var(--b)"></span>Group B</span>
+    </div>
+    <div class="row">
+      <label>Tolerance threshold <span id="thresholdVal">35%</span></label>
+      <input type="range" id="threshold" min="0" max="90" value="35">
+    </div>
+    <div class="row">
+      <label>Speed <span id="speedVal">Normal</span></label>
+      <input type="range" id="speed" min="1" max="5" value="3">
+    </div>
+    <div class="buttons">
+      <button class="primary" id="toggleRun">Run</button>
+      <button id="stepBtn">Step</button>
+    </div>
+    <div class="buttons">
+      <button id="resetBtn">New random grid</button>
+    </div>
+    <div class="stats">
+      <div class="stat"><span>Generation</span><b id="genVal">0</b></div>
+      <div class="stat"><span>Satisfied agents</span><b id="satVal">0%</b></div>
+      <div class="bar"><div id="satBar" style="width:0%"></div></div>
+      <div class="stat"><span>Avg. same-type neighbors</span><b id="segVal">0%</b></div>
+      <div class="bar"><div id="segBar" style="width:0%"></div></div>
+    </div>
+    <div class="status running" id="statusBox">Ready</div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const W = 60, H = 60;
+  const CELL = 600 / W;
+  const EMPTY = 0, A = 1, B = 2;
+  const DENSITY = 0.9;
+
+  const canvas = document.getElementById('grid');
+  const ctx = canvas.getContext('2d');
+
+  let grid = new Int8Array(W * H);
+  let threshold = 0.35;
+  let generation = 0;
+  let running = false;
+  let lastStepTime = 0;
+
+  const idx = (x, y) => y * W + x;
+
+  function randomGrid() {
+    grid = new Int8Array(W * H);
+    for (let i = 0; i < W * H; i++) {
+      if (Math.random() < DENSITY) grid[i] = Math.random() < 0.5 ? A : B;
+    }
+    generation = 0;
+    running = false;
+    document.getElementById('toggleRun').textContent = 'Run';
+    draw();
+    updateStats();
+    setStatus('Ready', 'running');
+  }
+
+  function neighborCounts(x, y) {
+    let same = 0, diff = 0;
+    const t = grid[idx(x, y)];
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+        const nt = grid[idx(nx, ny)];
+        if (nt === EMPTY) continue;
+        if (nt === t) same++; else diff++;
+      }
+    }
+    return { same, diff };
+  }
+
+  function isSatisfied(x, y) {
+    const { same, diff } = neighborCounts(x, y);
+    const total = same + diff;
+    if (total === 0) return true;
+    return same / total >= threshold;
+  }
+
+  function step() {
+    const unsatisfied = [];
+    const empties = [];
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const t = grid[idx(x, y)];
+        if (t === EMPTY) { empties.push(idx(x, y)); continue; }
+        if (!isSatisfied(x, y)) unsatisfied.push(idx(x, y));
+      }
+    }
+    for (let i = unsatisfied.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [unsatisfied[i], unsatisfied[j]] = [unsatisfied[j], unsatisfied[i]];
+    }
+    let moved = 0;
+    for (const pos of unsatisfied) {
+      if (empties.length === 0) break;
+      const t = grid[pos];
+      const ei = Math.floor(Math.random() * empties.length);
+      const dest = empties[ei];
+      grid[dest] = t;
+      grid[pos] = EMPTY;
+      empties[ei] = pos;
+      moved++;
+    }
+    generation++;
+    return moved;
+  }
+
+  function computeStats() {
+    let sumFrac = 0, withNeighbors = 0, satisfiedCount = 0, occupied = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (grid[idx(x, y)] === EMPTY) continue;
+        occupied++;
+        const { same, diff } = neighborCounts(x, y);
+        const total = same + diff;
+        if (total > 0) { sumFrac += same / total; withNeighbors++; }
+        if (isSatisfied(x, y)) satisfiedCount++;
+      }
+    }
+    return {
+      avgSame: withNeighbors ? sumFrac / withNeighbors : 0,
+      pctSatisfied: occupied ? satisfiedCount / occupied : 1,
+    };
+  }
+
+  function updateStats() {
+    const { avgSame, pctSatisfied } = computeStats();
+    document.getElementById('genVal').textContent = generation;
+    document.getElementById('satVal').textContent = Math.round(pctSatisfied * 100) + '%';
+    document.getElementById('satBar').style.width = Math.round(pctSatisfied * 100) + '%';
+    document.getElementById('segVal').textContent = Math.round(avgSame * 100) + '%';
+    document.getElementById('segBar').style.width = Math.round(avgSame * 100) + '%';
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const t = grid[idx(x, y)];
+        if (t === EMPTY) continue;
+        ctx.fillStyle = t === A ? '#e0793f' : '#3f9ea0';
+        ctx.fillRect(x * CELL, y * CELL, CELL - 0.5, CELL - 0.5);
+      }
+    }
+  }
+
+  function setStatus(text, cls) {
+    const box = document.getElementById('statusBox');
+    box.textContent = text;
+    box.className = 'status ' + cls;
+  }
+
+  function doStep() {
+    const moved = step();
+    draw();
+    updateStats();
+    if (moved === 0) {
+      running = false;
+      document.getElementById('toggleRun').textContent = 'Run';
+      setStatus('Stable — no one wants to move', 'stable');
+    } else {
+      setStatus('Running — ' + moved + ' agents moved', 'running');
+    }
+  }
+
+  function loop(t) {
+    if (running) {
+      const speed = +document.getElementById('speed').value;
+      const interval = [0, 500, 300, 160, 80, 30][speed];
+      if (t - lastStepTime >= interval) {
+        lastStepTime = t;
+        doStep();
+      }
+      requestAnimationFrame(loop);
+    }
+  }
+
+  document.getElementById('threshold').addEventListener('input', (e) => {
+    threshold = +e.target.value / 100;
+    document.getElementById('thresholdVal').textContent = e.target.value + '%';
+    updateStats();
+  });
+
+  document.getElementById('speed').addEventListener('input', (e) => {
+    const labels = ['', 'Slowest', 'Slow', 'Normal', 'Fast', 'Fastest'];
+    document.getElementById('speedVal').textContent = labels[+e.target.value];
+  });
+
+  document.getElementById('toggleRun').addEventListener('click', () => {
+    running = !running;
+    document.getElementById('toggleRun').textContent = running ? 'Pause' : 'Run';
+    if (running) {
+      setStatus('Running', 'running');
+      lastStepTime = 0;
+      requestAnimationFrame(loop);
+    }
+  });
+
+  document.getElementById('stepBtn').addEventListener('click', () => {
+    running = false;
+    document.getElementById('toggleRun').textContent = 'Run';
+    doStep();
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', randomGrid);
+
+  randomGrid();
+})();
+</script>
+</body>
+</html>
