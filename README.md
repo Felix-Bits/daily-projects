@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-08-31 — Self-Organizing Color Map](2026-08-31-som-color-map/) — pure-stdlib terminal animation of a Kohonen self-organizing map, where a grid of neurons starting as pure RGB static self-organizes into a smooth rainbow gradient through nothing but local winner-take-all competition and shrinking neighborhood pulls — no labels, no backprop
 - [2026-08-30 — Schelling's Segregation Model](2026-08-30-schelling-segregation/) — interactive canvas simulation where two groups of agents each just want a modest fraction of same-type neighbors, yet even a mild 35% tolerance threshold snowballs into near-total spatial segregation within a couple dozen generations, with nobody in the system ever asking for that outcome
 - [2026-08-29 — Lloyd's Voronoi Relaxation](2026-08-29-lloyd-voronoi/) — terminal visualizer where random seed points repeatedly jump to the centroid of their own Voronoi region, watching jagged random cells relax into an even honeycomb tessellation, the same fixed point behind k-means clustering and blue-noise stipple art
 - [2026-08-28 — Butterfly Pendulums](2026-08-28-butterfly-pendulums/) — canvas toy running two identical double pendulums whose starting angle differs by 0.001°, RK4-integrated so the tiny nudge visibly amplifies into totally divergent chaotic trails, with a live meter tracking how far apart their tips have drifted
