@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Percolation Threshold</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f1117;
+    --panel: #171a23;
+    --border: #2a2f3d;
+    --text: #e6e8ef;
+    --dim: #8b90a3;
+    --accent: #4fc3f7;
+    --open: #3a6ea5;
+    --span: #ff7043;
+    --closed: #1e212b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    padding: 24px;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  p.sub { color: var(--dim); margin: 0 0 20px; max-width: 760px; line-height: 1.5; }
+  .layout { display: flex; flex-wrap: wrap; gap: 24px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .panel h2 { font-size: 1rem; margin: 0 0 10px; color: var(--accent); }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+  button {
+    background: #232838;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 12px;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  button:hover { background: #2c3346; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  label { font-size: 0.85rem; color: var(--dim); display: flex; align-items: center; gap: 6px; }
+  input[type=range] { width: 160px; }
+  canvas { display: block; border-radius: 6px; background: var(--closed); }
+  .stat { font-size: 0.85rem; margin-top: 10px; line-height: 1.6; color: var(--dim); }
+  .stat b { color: var(--text); }
+  .legend { display: flex; gap: 16px; font-size: 0.78rem; color: var(--dim); margin-top: 8px; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  #histCanvas, #curveCanvas { background: #12141c; }
+  footer { margin-top: 24px; color: var(--dim); font-size: 0.78rem; max-width: 760px; line-height: 1.5; }
+  code { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>Percolation Threshold</h1>
+<p class="sub">
+  Each cell in the grid is independently "open" with probability <b>p</b>. Does a connected
+  path of open cells span from the top row to the bottom row? Sweep <b>p</b> up from 0 and watch:
+  for small grids nothing much happens until, quite suddenly, a giant connected cluster snaps into
+  existence and spans the whole board. That jump is a genuine phase transition, and for a large
+  square lattice it happens right around <b>p&nbsp;&approx;&nbsp;0.592746</b> &mdash; a constant
+  nobody has ever found a closed-form expression for.
+</p>
+
+<div class="layout">
+
+  <div class="panel">
+    <h2>Live grid</h2>
+    <div class="controls">
+      <label>p = <span id="pVal">0.50</span>
+        <input type="range" id="pSlider" min="0" max="1" step="0.01" value="0.5">
+      </label>
+      <button id="randomizeBtn">New random grid</button>
+      <button id="sweepBtn">Auto-sweep p: 0&rarr;1</button>
+    </div>
+    <canvas id="gridCanvas" width="440" height="440"></canvas>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--closed);border:1px solid var(--border)"></span>closed</span>
+      <span><span class="swatch" style="background:var(--open)"></span>open</span>
+      <span><span class="swatch" style="background:var(--span)"></span>spanning cluster</span>
+    </div>
+    <div class="stat">
+      Grid: <b id="gridSize">50&times;50</b> &nbsp;|&nbsp;
+      Open cells: <b id="openPct">&mdash;</b> &nbsp;|&nbsp;
+      Spans top&rarr;bottom: <b id="percStatus">&mdash;</b>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Critical-p histogram</h2>
+    <p style="color:var(--dim);font-size:0.8rem;margin:0 0 10px;max-width:320px">
+      Each auto-sweep records the exact p at which the grid first percolates. Run it a few times
+      &mdash; the values cluster tightly around the theoretical threshold.
+    </p>
+    <canvas id="histCanvas" width="320" height="180"></canvas>
+    <div class="stat">
+      Runs: <b id="runCount">0</b> &nbsp;|&nbsp;
+      Average critical p: <b id="avgCritP">&mdash;</b> &nbsp;|&nbsp;
+      Theory: <b>0.5927</b>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Finite-size scaling</h2>
+    <p style="color:var(--dim);font-size:0.8rem;margin:0 0 10px;max-width:320px">
+      Monte-Carlo estimate of "probability the grid percolates" as a function of p, for three grid
+      sizes. Bigger grids make the S-curve snap sharper &mdash; in the infinite-size limit it becomes
+      a true step function at p<sub>c</sub>.
+    </p>
+    <div class="controls">
+      <button id="curveBtn">Compute (~1-2s)</button>
+    </div>
+    <canvas id="curveCanvas" width="320" height="180"></canvas>
+    <div class="legend" id="curveLegend"></div>
+  </div>
+
+</div>
+
+<footer>
+  Everything on this page is plain HTML5 canvas + vanilla JS, no dependencies. Spanning detection
+  uses union-find with path compression: open cells are unioned with their open right/down
+  neighbors, plus every open cell in the top row is unioned to a virtual <code>TOP</code> node and
+  every open cell in the bottom row to a virtual <code>BOTTOM</code> node. The grid percolates the
+  instant <code>find(TOP) === find(BOTTOM)</code>.
+</footer>
+
+<script>
+// ---------- Union-Find ----------
+class UnionFind {
+  constructor(n) {
+    this.parent = new Int32Array(n);
+    this.rank = new Uint8Array(n);
+    for (let i = 0; i < n; i++) this.parent[i] = i;
+  }
+  find(x) {
+    while (this.parent[x] !== x) {
+      this.parent[x] = this.parent[this.parent[x]];
+      x = this.parent[x];
+    }
+    return x;
+  }
+  union(a, b) {
+    const ra = this.find(a), rb = this.find(b);
+    if (ra === rb) return;
+    if (this.rank[ra] < this.rank[rb]) this.parent[ra] = rb;
+    else if (this.rank[ra] > this.rank[rb]) this.parent[rb] = ra;
+    else { this.parent[rb] = ra; this.rank[ra]++; }
+  }
+};
+
+// build a percolation grid of size n x n at probability p.
+// returns { open: Uint8Array(n*n), uf: UnionFind, TOP, BOTTOM, percolates }
+function buildGrid(n, p) {
+  const N = n * n;
+  const TOP = N, BOTTOM = N + 1;
+  const uf = new UnionFind(N + 2);
+  const open = new Uint8Array(N);
+  for (let i = 0; i < N; i++) open[i] = Math.random() < p ? 1 : 0;
+
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      const i = r * n + c;
+      if (!open[i]) continue;
+      if (r === 0) uf.union(i, TOP);
+      if (r === n - 1) uf.union(i, BOTTOM);
+      if (c + 1 < n && open[i + 1]) uf.union(i, i + 1);
+      if (r + 1 < n && open[i + n]) uf.union(i, i + n);
+    }
+  }
+  return { n, open, uf, TOP, BOTTOM, percolates: uf.find(TOP) === uf.find(BOTTOM) };
+}
+
+// ---------- Live grid panel ----------
+const N = 50;
+const gridCanvas = document.getElementById('gridCanvas');
+const gctx = gridCanvas.getContext('2d');
+const pSlider = document.getElementById('pVal');
+const pSliderInput = document.getElementById('pSlider');
+const openPctEl = document.getElementById('openPct');
+const percStatusEl = document.getElementById('percStatus');
+document.getElementById('gridSize').textContent = `${N}×${N}`;
+
+let currentGrid = buildGrid(N, parseFloat(pSliderInput.value));
+
+function drawGrid(g) {
+  const cell = gridCanvas.width / g.n;
+  gctx.clearRect(0, 0, gridCanvas.width, gridCanvas.height);
+  const topRoot = g.percolates ? g.uf.find(g.TOP) : -1;
+  for (let r = 0; r < g.n; r++) {
+    for (let c = 0; c < g.n; c++) {
+      const i = r * g.n + c;
+      if (!g.open[i]) continue;
+      const spanning = g.percolates && g.uf.find(i) === topRoot;
+      gctx.fillStyle = spanning ? '#ff7043' : '#3a6ea5';
+      gctx.fillRect(c * cell, r * cell, Math.ceil(cell), Math.ceil(cell));
+    }
+  }
+  const openCount = g.open.reduce((a, b) => a + b, 0);
+  openPctEl.textContent = (100 * openCount / g.open.length).toFixed(1) + '%';
+  percStatusEl.textContent = g.percolates ? 'YES' : 'no';
+  percStatusEl.style.color = g.percolates ? '#ff7043' : '';
+}
+
+function regenerate() {
+  currentGrid = buildGrid(N, parseFloat(pSliderInput.value));
+  drawGrid(currentGrid);
+}
+
+pSliderInput.addEventListener('input', () => {
+  pSlider.textContent = parseFloat(pSliderInput.value).toFixed(2);
+  regenerate();
+});
+document.getElementById('randomizeBtn').addEventListener('click', regenerate);
+drawGrid(currentGrid);
+
+// ---------- Auto-sweep + histogram ----------
+const sweepBtn = document.getElementById('sweepBtn');
+const critPs = [];
+const histCanvas = document.getElementById('histCanvas');
+const hctx = histCanvas.getContext('2d');
+const runCountEl = document.getElementById('runCount');
+const avgCritPEl = document.getElementById('avgCritP');
+
+function drawHistogram() {
+  hctx.clearRect(0, 0, histCanvas.width, histCanvas.height);
+  const lo = 0.40, hi = 0.75, bins = 14;
+  const binW = (hi - lo) / bins;
+  const counts = new Array(bins).fill(0);
+  for (const p of critPs) {
+    let idx = Math.floor((p - lo) / binW);
+    idx = Math.max(0, Math.min(bins - 1, idx));
+    counts[idx]++;
+  }
+  const maxCount = Math.max(1, ...counts);
+  const w = histCanvas.width, h = histCanvas.height, pad = 20;
+  const plotW = w - pad, plotH = h - pad;
+  const barW = plotW / bins;
+
+  // theoretical line at 0.5927
+  const theoryX = pad + ((0.592746 - lo) / (hi - lo)) * plotW;
+  hctx.strokeStyle = '#4fc3f7';
+  hctx.setLineDash([4, 3]);
+  hctx.beginPath();
+  hctx.moveTo(theoryX, 0);
+  hctx.lineTo(theoryX, plotH);
+  hctx.stroke();
+  hctx.setLineDash([]);
+
+  for (let i = 0; i < bins; i++) {
+    const barH = (counts[i] / maxCount) * (plotH - 10);
+    hctx.fillStyle = '#ff7043';
+    hctx.fillRect(pad + i * barW + 1, plotH - barH, barW - 2, barH);
+  }
+  hctx.strokeStyle = '#2a2f3d';
+  hctx.beginPath();
+  hctx.moveTo(pad, plotH);
+  hctx.lineTo(w, plotH);
+  hctx.stroke();
+  hctx.fillStyle = '#8b90a3';
+  hctx.font = '10px sans-serif';
+  hctx.fillText(lo.toFixed(2), pad, h - 6);
+  hctx.fillText(hi.toFixed(2), w - 26, h - 6);
+}
+drawHistogram();
+
+let sweeping = false;
+function autoSweep() {
+  if (sweeping) return;
+  sweeping = true;
+  sweepBtn.disabled = true;
+  let p = 0.0;
+  const step = 0.015;
+  const timer = setInterval(() => {
+    p += step;
+    pSliderInput.value = Math.min(p, 1).toFixed(2);
+    pSlider.textContent = pSliderInput.value;
+    currentGrid = buildGrid(N, p);
+    drawGrid(currentGrid);
+    if (currentGrid.percolates || p >= 1) {
+      clearInterval(timer);
+      sweeping = false;
+      sweepBtn.disabled = false;
+      if (currentGrid.percolates) {
+        critPs.push(p);
+        runCountEl.textContent = critPs.length;
+        avgCritPEl.textContent = (critPs.reduce((a, b) => a + b, 0) / critPs.length).toFixed(4);
+        drawHistogram();
+      }
+    }
+  }, 45);
+}
+sweepBtn.addEventListener('click', autoSweep);
+
+// ---------- Finite-size scaling curve ----------
+const curveCanvas = document.getElementById('curveCanvas');
+const cctx = curveCanvas.getContext('2d');
+const curveBtn = document.getElementById('curveBtn');
+const curveLegend = document.getElementById('curveLegend');
+const SIZES = [20, 50, 80];
+const COLORS = ['#66bb6a', '#4fc3f7', '#ff7043'];
+
+function computeCurve(n, pValues, trials) {
+  return pValues.map(p => {
+    let hits = 0;
+    for (let t = 0; t < trials; t++) {
+      if (buildGrid(n, p).percolates) hits++;
+    }
+    return hits / trials;
+  });
+}
+
+function drawCurves(dataBySize, pValues) {
+  cctx.clearRect(0, 0, curveCanvas.width, curveCanvas.height);
+  const w = curveCanvas.width, h = curveCanvas.height, pad = 20;
+  const plotW = w - pad, plotH = h - pad;
+
+  const theoryX = pad + 0.592746 * plotW;
+  cctx.strokeStyle = '#8b90a3';
+  cctx.setLineDash([4, 3]);
+  cctx.beginPath();
+  cctx.moveTo(theoryX, 0);
+  cctx.lineTo(theoryX, plotH);
+  cctx.stroke();
+  cctx.setLineDash([]);
+
+  dataBySize.forEach((probs, si) => {
+    cctx.strokeStyle = COLORS[si];
+    cctx.lineWidth = 2;
+    cctx.beginPath();
+    probs.forEach((prob, i) => {
+      const x = pad + pValues[i] * plotW;
+      const y = plotH - prob * (plotH - 5);
+      if (i === 0) cctx.moveTo(x, y); else cctx.lineTo(x, y);
+    });
+    cctx.stroke();
+  });
+  cctx.lineWidth = 1;
+
+  cctx.strokeStyle = '#2a2f3d';
+  cctx.beginPath();
+  cctx.moveTo(pad, plotH);
+  cctx.lineTo(w, plotH);
+  cctx.moveTo(pad, 0);
+  cctx.lineTo(pad, plotH);
+  cctx.stroke();
+  cctx.fillStyle = '#8b90a3';
+  cctx.font = '10px sans-serif';
+  cctx.fillText('0', pad - 4, h - 6);
+  cctx.fillText('1', w - 8, h - 6);
+  cctx.fillText('P(percolates)', 2, 10);
+
+  curveLegend.innerHTML = SIZES.map((s, i) =>
+    `<span><span class="swatch" style="background:${COLORS[i]}"></span>n=${s}</span>`
+  ).join('');
+}
+
+function runCurveComputation() {
+  curveBtn.disabled = true;
+  curveBtn.textContent = 'Computing...';
+  setTimeout(() => {
+    const pValues = [];
+    for (let p = 0; p <= 1.0001; p += 0.04) pValues.push(Math.min(p, 1));
+    const trials = 40;
+    const dataBySize = SIZES.map(n => computeCurve(n, pValues, trials));
+    drawCurves(dataBySize, pValues);
+    curveBtn.disabled = false;
+    curveBtn.textContent = 'Recompute';
+  }, 20);
+}
+curveBtn.addEventListener('click', runCurveComputation);
+runCurveComputation();
+</script>
+</body>
+</html>
