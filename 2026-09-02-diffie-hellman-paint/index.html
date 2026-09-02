@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Diffie-Hellman: The Paint Can Analogy</title>
+<style>
+  :root {
+    --bg: #0f1220;
+    --panel: #171b2e;
+    --panel2: #1e2338;
+    --ink: #e8e9f3;
+    --dim: #8b90ac;
+    --alice: #ff5d8f;
+    --bob: #4fc3f7;
+    --eve: #ffb74d;
+    --accent: #7c5cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(circle at 50% -10%, #1c2140, var(--bg) 60%);
+    color: var(--ink);
+    padding: 24px 16px 60px;
+  }
+  h1 { text-align: center; margin: 4px 0 2px; font-size: 1.7em; }
+  .subtitle { text-align: center; color: var(--dim); margin-bottom: 22px; font-size: 0.95em; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  button {
+    display: block; margin: 0 auto 28px;
+    background: linear-gradient(135deg, var(--accent), #a78bfa);
+    color: white; border: none; border-radius: 10px;
+    padding: 12px 26px; font-size: 1em; font-weight: 600;
+    cursor: pointer; box-shadow: 0 6px 20px rgba(124,92,255,0.35);
+    transition: transform 0.15s ease;
+  }
+  button:hover { transform: translateY(-2px); }
+  button:active { transform: translateY(0); }
+
+  section { background: var(--panel); border-radius: 14px; padding: 18px 22px 24px; margin-bottom: 22px; }
+  section h2 { margin-top: 0; font-size: 1.15em; }
+  .lane-labels { display: flex; justify-content: space-between; color: var(--dim); font-size: 0.85em; margin-bottom: 6px; }
+
+  .row { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: start; }
+  .col { background: var(--panel2); border-radius: 10px; padding: 12px; }
+  .col h3 { margin: 0 0 10px; font-size: 0.95em; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .alice-dot { background: var(--alice); } .bob-dot { background: var(--bob); } .eve-dot { background: var(--eve); }
+
+  .swatch-line { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: 0.85em; }
+  .swatch { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; border: 2px solid rgba(255,255,255,0.15); box-shadow: inset 0 0 10px rgba(0,0,0,0.35); transition: background 0.6s ease; }
+  .swatch.big { width: 58px; height: 58px; }
+  .label { color: var(--dim); }
+  .label b { color: var(--ink); font-weight: 600; }
+
+  .channel { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding-top: 30px; color: var(--dim); font-size: 0.8em; }
+  .arrow { font-size: 1.4em; color: var(--eve); }
+
+  .final-row { display: flex; justify-content: center; gap: 60px; margin-top: 16px; }
+  .final { text-align: center; }
+  .final .swatch { margin: 0 auto 6px; }
+  .match-badge { text-align: center; margin-top: 14px; font-weight: 600; color: #7CFFB2; }
+
+  .math-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .math-col h3 { font-size: 0.95em; margin-bottom: 6px; }
+  .math-col code { display: block; background: #0d0f1c; padding: 6px 10px; border-radius: 6px; margin: 4px 0; font-size: 0.88em; color: #c7c9ff; }
+  .eve-box { background: #241a10; border: 1px solid rgba(255,183,77,0.35); border-radius: 10px; padding: 12px 16px; margin-top: 16px; font-size: 0.87em; color: #f3d9ad; }
+  .eve-box b { color: var(--eve); }
+
+  footer { text-align: center; color: var(--dim); font-size: 0.8em; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎨 Diffie-Hellman, via Paint Cans</h1>
+  <p class="subtitle">Two people agree on a secret color over a channel a nosy eavesdropper can see every drop of — and she still can't mix it herself.</p>
+  <button id="newExchange">🔁 New Key Exchange</button>
+
+  <section>
+    <h2>1. The Paint Analogy</h2>
+    <div class="lane-labels"><span>Alice</span><span>Public Channel (Eve is watching)</span><span>Bob</span></div>
+    <div class="row">
+      <div class="col">
+        <h3><span class="dot alice-dot"></span>Alice</h3>
+        <div class="swatch-line"><div class="swatch" id="commonA"></div><span class="label">Public base paint (everyone knows this)</span></div>
+        <div class="swatch-line"><div class="swatch" id="secretA"></div><span class="label">Alice's <b>private</b> paint (never shared)</span></div>
+        <div class="swatch-line"><div class="swatch" id="mixA"></div><span class="label">Mixes them &rarr; sends this blend to Bob</span></div>
+      </div>
+      <div class="channel">
+        <div>A's blend<div class="arrow">➜</div></div>
+        <div><div class="arrow">⟵</div>B's blend</div>
+      </div>
+      <div class="col">
+        <h3><span class="dot bob-dot"></span>Bob</h3>
+        <div class="swatch-line"><div class="swatch" id="commonB"></div><span class="label">Public base paint (everyone knows this)</span></div>
+        <div class="swatch-line"><div class="swatch" id="secretB"></div><span class="label">Bob's <b>private</b> paint (never shared)</span></div>
+        <div class="swatch-line"><div class="swatch" id="mixB"></div><span class="label">Mixes them &rarr; sends this blend to Alice</span></div>
+      </div>
+    </div>
+
+    <div class="final-row">
+      <div class="final">
+        <div class="swatch big" id="finalA"></div>
+        <div class="label">Alice adds <b>her</b> private paint<br>to Bob's received blend</div>
+      </div>
+      <div class="final">
+        <div class="swatch big" id="finalB"></div>
+        <div class="label">Bob adds <b>his</b> private paint<br>to Alice's received blend</div>
+      </div>
+    </div>
+    <div class="match-badge" id="matchBadge"></div>
+  </section>
+
+  <section>
+    <h2>2. The Real Math Underneath</h2>
+    <p class="label">Same idea, but the "paint" is a number, and "mixing" is modular exponentiation &mdash; easy to run forward, brutal to reverse. Public agreement: prime <b id="pVal"></b>, generator <b id="gVal"></b>.</p>
+    <div class="math-grid">
+      <div class="math-col">
+        <h3><span class="dot alice-dot"></span>Alice</h3>
+        <code id="mA1"></code>
+        <code id="mA2"></code>
+        <code id="mA3"></code>
+      </div>
+      <div class="math-col">
+        <h3><span class="dot bob-dot"></span>Bob</h3>
+        <code id="mB1"></code>
+        <code id="mB2"></code>
+        <code id="mB3"></code>
+      </div>
+    </div>
+    <div class="eve-box">
+      <b>What Eve sees on the wire:</b> <span id="eveSees"></span><br>
+      She has <code style="display:inline;background:none;color:#f3d9ad;padding:0;">p</code>, <code style="display:inline;background:none;color:#f3d9ad;padding:0;">g</code>, <code style="display:inline;background:none;color:#f3d9ad;padding:0;">A</code> and <code style="display:inline;background:none;color:#f3d9ad;padding:0;">B</code> &mdash; but recovering <code style="display:inline;background:none;color:#f3d9ad;padding:0;">a</code> or <code style="display:inline;background:none;color:#f3d9ad;padding:0;">b</code> means solving a discrete logarithm.
+      With <code style="display:inline;background:none;color:#f3d9ad;padding:0;">p=23</code> that's a coffee break of brute force; real Diffie-Hellman uses primes hundreds of digits long, where it's the age of the universe instead.
+    </div>
+  </section>
+
+  <footer>No libraries, no network calls &mdash; everything above runs in this one HTML file.</footer>
+</div>
+
+<script>
+const P = 23, G = 5; // classic textbook Diffie-Hellman demo values (5 is a primitive root mod 23)
+
+function modpow(base, exp, mod) {
+  let result = 1;
+  base = base % mod;
+  while (exp > 0) {
+    if (exp & 1) result = (result * base) % mod;
+    exp = Math.floor(exp / 2);
+    base = (base * base) % mod;
+  }
+  return result;
+}
+
+function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
+
+function hslToRgb(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+}
+
+function rgbStr([r, g, b]) { return `rgb(${r},${g},${b})`; }
+
+// Weighted average mixing: combining N paints, each new paint added with equal weight,
+// makes the *final* blend order-independent no matter which order the mixing happened in.
+function mixWeighted(colorCountPairs) {
+  let totalWeight = 0, r = 0, g = 0, b = 0;
+  for (const [c, w] of colorCountPairs) {
+    r += c[0] * w; g += c[1] * w; b += c[2] * w; totalWeight += w;
+  }
+  return [Math.round(r / totalWeight), Math.round(g / totalWeight), Math.round(b / totalWeight)];
+}
+
+const COMMON = [255, 205, 0]; // public base paint, same for everyone
+
+function setSwatch(id, color) {
+  document.getElementById(id).style.background = rgbStr(color);
+}
+
+function runExchange() {
+  const a = randInt(2, P - 2);
+  const b = randInt(2, P - 2);
+
+  // --- Paint analogy, driven by the same secret numbers a and b via hue ---
+  const secretA = hslToRgb((a / (P - 1)) * 320, 85, 50);
+  const secretB = hslToRgb((b / (P - 1)) * 320, 85, 50);
+
+  const mixA = mixWeighted([[COMMON, 1], [secretA, 1]]);      // Alice's outgoing blend
+  const mixB = mixWeighted([[COMMON, 1], [secretB, 1]]);      // Bob's outgoing blend
+
+  // Alice receives Bob's blend (common+secretB) and stirs in her own secret again.
+  // Bob receives Alice's blend (common+secretA) and stirs in his own secret again.
+  // Both land on the same three-way blend of {common, secretA, secretB} no matter the order
+  // (computed from the exact source colors, not the rounded display swatches, so both sides
+  // land on identical integer RGB values instead of drifting apart by a rounding error).
+  const finalA = mixWeighted([[COMMON, 1], [secretB, 1], [secretA, 1]]);
+  const finalB = mixWeighted([[COMMON, 1], [secretA, 1], [secretB, 1]]);
+
+  setSwatch('commonA', COMMON);
+  setSwatch('commonB', COMMON);
+  setSwatch('secretA', secretA);
+  setSwatch('secretB', secretB);
+  setSwatch('mixA', mixA);
+  setSwatch('mixB', mixB);
+  setSwatch('finalA', finalA);
+  setSwatch('finalB', finalB);
+
+  const matches = finalA.every((v, i) => v === finalB[i]);
+  document.getElementById('matchBadge').textContent = matches
+    ? '✓ Alice and Bob landed on the exact same color, without ever sending their private paint.'
+    : '✗ mismatch (this should not happen)';
+
+  // --- Real math, small textbook prime ---
+  const A = modpow(G, a, P);
+  const B = modpow(G, b, P);
+  const sharedFromAlice = modpow(B, a, P);
+  const sharedFromBob = modpow(A, b, P);
+
+  document.getElementById('pVal').textContent = P;
+  document.getElementById('gVal').textContent = G;
+
+  document.getElementById('mA1').textContent = `secret a = ${a}  (kept private)`;
+  document.getElementById('mA2').textContent = `A = ${G}^${a} mod ${P} = ${A}   (sent to Bob)`;
+  document.getElementById('mA3').textContent = `shared = B^a mod ${P} = ${B}^${a} mod ${P} = ${sharedFromAlice}`;
+
+  document.getElementById('mB1').textContent = `secret b = ${b}  (kept private)`;
+  document.getElementById('mB2').textContent = `B = ${G}^${b} mod ${P} = ${B}   (sent to Alice)`;
+  document.getElementById('mB3').textContent = `shared = A^b mod ${P} = ${A}^${b} mod ${P} = ${sharedFromBob}`;
+
+  document.getElementById('eveSees').textContent = `p=${P}, g=${G}, A=${A}, B=${B}`;
+}
+
+document.getElementById('newExchange').addEventListener('click', runExchange);
+runExchange();
+</script>
+</body>
+</html>
