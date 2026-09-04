@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Karplus-Strong Harp</title>
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #0e0f14;
+    color: #e8e6f0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  .wrap {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 28px 20px 60px;
+  }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+    letter-spacing: 0.3px;
+  }
+  p.sub {
+    margin: 0 0 20px;
+    color: #9a97ac;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 360px;
+    background: #14151c;
+    border-radius: 10px;
+    border: 1px solid #26263400;
+    cursor: pointer;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 18px;
+  }
+  .ctrl {
+    flex: 1 1 200px;
+    background: #181923;
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .ctrl label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12.5px;
+    color: #b9b6c9;
+    margin-bottom: 6px;
+  }
+  .ctrl input[type="range"] {
+    width: 100%;
+  }
+  .strings-legend {
+    margin-top: 16px;
+    font-size: 12px;
+    color: #7d7a90;
+    line-height: 1.6;
+  }
+  code {
+    background: #20212c;
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: #c9c6ff;
+  }
+  .readout {
+    margin-top: 14px;
+    font-size: 12.5px;
+    color: #9a97ac;
+    min-height: 18px;
+  }
+  .badge {
+    display: inline-block;
+    background: #232437;
+    color: #a9a6ff;
+    border-radius: 5px;
+    padding: 1px 6px;
+    font-size: 11px;
+    margin-right: 6px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Karplus-Strong Harp</h1>
+  <p class="sub">
+    Click a string, or press <code>a s d f g h j k</code>. Every string is a tiny feedback loop —
+    a ring buffer full of noise that averages and fades itself, once per sample. Watch the bottom
+    strip: it's the actual delay-line buffer you're hearing, decaying in real time.
+  </p>
+
+  <canvas id="c" width="1600" height="720"></canvas>
+
+  <div class="row">
+    <div class="ctrl">
+      <label><span>Sustain</span><span id="sustainVal"></span></label>
+      <input id="sustain" type="range" min="0.97" max="0.9995" step="0.0005" value="0.994">
+    </div>
+    <div class="ctrl">
+      <label><span>Character (string → drum)</span><span id="charVal"></span></label>
+      <input id="character" type="range" min="0" max="0.5" step="0.01" value="0">
+    </div>
+    <div class="ctrl">
+      <label><span>Volume</span><span id="volVal"></span></label>
+      <input id="volume" type="range" min="0" max="1" step="0.01" value="0.6">
+    </div>
+  </div>
+
+  <div class="readout" id="readout">click a string to pluck it</div>
+
+  <div class="strings-legend">
+    <span class="badge">how it works</span>
+    Karplus-Strong synthesis: fill a buffer of length <code>N = sampleRate / frequency</code> with
+    white noise, then forever output the next sample and replace it with a damped average of itself
+    and its neighbor. The averaging is a low-pass filter, so high harmonics die first — exactly what
+    a real plucked string does. Push "Character" up and each sample randomly flips sign instead of
+    averaging cleanly, turning the string into an inharmonic drum.
+  </div>
+</div>
+
+<script>
+(() => {
+  const NOTE_FREQS = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25];
+  const NOTE_NAMES = ["C4","D4","E4","G4","A4","C5","D5","E5"];
+  const KEYS = ["a","s","d","f","g","h","j","k"];
+
+  const canvas = document.getElementById("c");
+  const ctx2d = canvas.getContext("2d");
+  const sustainEl = document.getElementById("sustain");
+  const characterEl = document.getElementById("character");
+  const volumeEl = document.getElementById("volume");
+  const sustainVal = document.getElementById("sustainVal");
+  const charVal = document.getElementById("charVal");
+  const volVal = document.getElementById("volVal");
+  const readout = document.getElementById("readout");
+
+  let audioCtx = null;
+  let processor = null;
+  const voices = []; // {buf, N, idx, freq, stringIndex}
+  let lastVoice = null;
+
+  const visual = NOTE_FREQS.map(f => ({ amp: 0, phase: 0, freq: f }));
+
+  function ensureAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    processor = audioCtx.createScriptProcessor(1024, 1, 1);
+    processor.onaudioprocess = (e) => {
+      const out = e.outputBuffer.getChannelData(0);
+      out.fill(0);
+      const damping = parseFloat(sustainEl.value);
+      const dropProb = parseFloat(characterEl.value);
+      const vol = parseFloat(volumeEl.value);
+      for (let vi = voices.length - 1; vi >= 0; vi--) {
+        const v = voices[vi];
+        let maxAbs = 0;
+        for (let i = 0; i < out.length; i++) {
+          const cur = v.buf[v.idx];
+          const nextIdx = (v.idx + 1) % v.N;
+          let filtered = damping * 0.5 * (v.buf[v.idx] + v.buf[nextIdx]);
+          if (Math.random() < dropProb) filtered = -filtered;
+          v.buf[v.idx] = filtered;
+          v.idx = nextIdx;
+          out[i] += cur * 0.5;
+          const a = Math.abs(cur);
+          if (a > maxAbs) maxAbs = a;
+        }
+        v.energy = maxAbs;
+        if (maxAbs < 0.0008) voices.splice(vi, 1);
+      }
+      for (let i = 0; i < out.length; i++) {
+        out[i] = Math.tanh(out[i] * vol * 1.6);
+      }
+    };
+    processor.connect(audioCtx.destination);
+  }
+
+  function pluck(stringIndex) {
+    ensureAudio();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const freq = NOTE_FREQS[stringIndex];
+    const N = Math.max(2, Math.round(audioCtx.sampleRate / freq));
+    const buf = new Float32Array(N);
+    for (let i = 0; i < N; i++) buf[i] = Math.random() * 2 - 1;
+    const voice = { buf, N, idx: 0, freq, stringIndex, energy: 1 };
+    voices.push(voice);
+    if (voices.length > 24) voices.shift();
+    lastVoice = voice;
+
+    const vis = visual[stringIndex];
+    vis.amp = 1;
+    vis.phase = 0;
+
+    readout.textContent =
+      `plucked ${NOTE_NAMES[stringIndex]}  —  N = ${N} samples  →  ${freq.toFixed(2)} Hz` +
+      `  (buffer length literally sets the pitch)`;
+  }
+
+  // ---- input ----
+  canvas.addEventListener("pointerdown", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const yFrac = (e.clientY - rect.top) / rect.height;
+    const idx = Math.min(NOTE_FREQS.length - 1, Math.max(0, Math.floor(yFrac * NOTE_FREQS.length)));
+    pluck(idx);
+  });
+
+  window.addEventListener("keydown", (e) => {
+    const idx = KEYS.indexOf(e.key.toLowerCase());
+    if (idx !== -1 && !e.repeat) pluck(idx);
+    const num = "12345678".indexOf(e.key);
+    if (num !== -1) pluck(num);
+  });
+
+  function fmt(v, d = 3) { return Number(v).toFixed(d); }
+  function syncLabels() {
+    sustainVal.textContent = fmt(sustainEl.value, 4);
+    charVal.textContent = fmt(characterEl.value, 2);
+    volVal.textContent = fmt(volumeEl.value, 2);
+  }
+  [sustainEl, characterEl, volumeEl].forEach(el => el.addEventListener("input", syncLabels));
+  syncLabels();
+
+  // ---- drawing ----
+  const W = canvas.width, H = canvas.height;
+  const stringsTop = 20, stringsBottom = H * 0.62;
+  const rowH = (stringsBottom - stringsTop) / NOTE_FREQS.length;
+  const scopeTop = stringsBottom + 40, scopeBottom = H - 30;
+
+  function draw() {
+    ctx2d.clearRect(0, 0, W, H);
+
+    // resting-position labels + strings
+    for (let i = 0; i < NOTE_FREQS.length; i++) {
+      const y = stringsTop + rowH * (i + 0.5);
+      const vis = visual[i];
+
+      ctx2d.font = "20px monospace";
+      ctx2d.fillStyle = "#5c5a70";
+      ctx2d.fillText(`${NOTE_NAMES[i]}  [${KEYS[i]}]`, 14, y - rowH * 0.28);
+
+      ctx2d.beginPath();
+      const hue = 250 - i * 18;
+      ctx2d.strokeStyle = vis.amp > 0.01
+        ? `hsl(${hue}, 80%, ${55 + vis.amp * 20}%)`
+        : "#3a3a4a";
+      ctx2d.lineWidth = 2 + vis.amp * 2;
+      const xStart = 150, xEnd = W - 30;
+      const span = xEnd - xStart;
+      for (let x = 0; x <= span; x += 6) {
+        const t = x / span;
+        const envelope = Math.sin(Math.PI * t);
+        const yy = y + vis.amp * envelope * 26 * Math.sin(vis.phase);
+        if (x === 0) ctx2d.moveTo(xStart + x, yy);
+        else ctx2d.lineTo(xStart + x, yy);
+      }
+      ctx2d.stroke();
+
+      vis.phase += 0.35 + i * 0.05;
+      vis.amp *= 0.965;
+    }
+
+    // oscilloscope of the last plucked voice's real ring buffer
+    ctx2d.strokeStyle = "#3a3b48";
+    ctx2d.strokeRect(20, scopeTop, W - 40, scopeBottom - scopeTop);
+    ctx2d.font = "13px monospace";
+    ctx2d.fillStyle = "#6f6c82";
+    ctx2d.fillText("live delay-line buffer (most recent pluck)", 26, scopeTop - 8);
+
+    if (lastVoice) {
+      const { buf, N } = lastVoice;
+      const midY = (scopeTop + scopeBottom) / 2;
+      const h = (scopeBottom - scopeTop) / 2 - 6;
+      ctx2d.beginPath();
+      ctx2d.strokeStyle = "#a9a6ff";
+      ctx2d.lineWidth = 1.5;
+      const usable = W - 60;
+      for (let x = 0; x <= usable; x++) {
+        const sampleIdx = Math.floor((x / usable) * N);
+        const val = buf[sampleIdx] || 0;
+        const yy = midY - val * h;
+        if (x === 0) ctx2d.moveTo(30 + x, yy);
+        else ctx2d.lineTo(30 + x, yy);
+      }
+      ctx2d.stroke();
+    }
+
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
