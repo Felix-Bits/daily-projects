@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Elementary Cellular Automaton Explorer</title>
+<style>
+  :root{
+    --paper:#f4efe2;
+    --ink:#1c1a15;
+    --ink-soft:#5b5648;
+    --accent:#b5482f;
+    --line:#d9d0b8;
+    --tile-off:#f4efe2;
+    --tile-on:#1c1a15;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Courier New', ui-monospace, monospace;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:24px 16px 48px;
+  }
+  h1{
+    font-size:1.4rem;
+    margin:0 0 4px;
+    letter-spacing:0.02em;
+  }
+  p.sub{
+    max-width:760px;
+    color:var(--ink-soft);
+    margin:0 0 20px;
+    font-size:0.92rem;
+    line-height:1.5;
+    text-align:center;
+  }
+  .panel{
+    width:100%;
+    max-width:760px;
+    border:1px solid var(--line);
+    background:rgba(0,0,0,0.02);
+    border-radius:6px;
+    padding:14px 16px;
+    margin-bottom:14px;
+  }
+  .row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-bottom:10px;
+  }
+  .row:last-child{margin-bottom:0;}
+  label{font-size:0.85rem;color:var(--ink-soft);}
+  input[type=number]{
+    width:64px;
+    font-family:inherit;
+    font-size:0.95rem;
+    background:var(--paper);
+    border:1px solid var(--ink);
+    color:var(--ink);
+    padding:3px 6px;
+    border-radius:3px;
+  }
+  input[type=range]{
+    accent-color:var(--accent);
+    flex:1;
+    min-width:120px;
+  }
+  button{
+    font-family:inherit;
+    font-size:0.82rem;
+    background:var(--paper);
+    border:1px solid var(--ink);
+    color:var(--ink);
+    padding:5px 10px;
+    border-radius:3px;
+    cursor:pointer;
+  }
+  button:hover{background:var(--ink);color:var(--paper);}
+  button.preset{padding:4px 8px;}
+  button.active{background:var(--accent);border-color:var(--accent);color:var(--paper);}
+  #ruleNote{
+    font-size:0.8rem;
+    color:var(--accent);
+    min-height:1.2em;
+  }
+  .genome{
+    display:flex;
+    gap:6px;
+    justify-content:center;
+    flex-wrap:wrap;
+  }
+  .tile{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    cursor:pointer;
+    user-select:none;
+    padding:4px 3px;
+    border-radius:4px;
+  }
+  .tile:hover{background:var(--line);}
+  .tile .neigh{display:flex;gap:1px;}
+  .cell{
+    width:14px;height:14px;
+    border:1px solid var(--ink);
+  }
+  .cell.on{background:var(--tile-on);}
+  .cell.off{background:var(--tile-off);}
+  .tile .arrow{font-size:0.6rem;color:var(--ink-soft);margin:1px 0;}
+  .tile .out{width:14px;height:14px;border:1px solid var(--ink);margin-top:1px;}
+  canvas{
+    display:block;
+    border:1px solid var(--ink);
+    background:var(--tile-off);
+    max-width:100%;
+    image-rendering:pixelated;
+  }
+  footer{
+    margin-top:18px;
+    font-size:0.75rem;
+    color:var(--ink-soft);
+    text-align:center;
+    max-width:700px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Elementary Cellular Automaton Explorer</h1>
+<p class="sub">
+  Every row is computed from the one above it by a rule that only looks at three cells: left, self, right.
+  There are exactly 256 such rules — <b>this whole 8-bit number is the entire program</b>. Click the truth-table
+  tiles below to hand-edit it and watch the pattern change live.
+</p>
+
+<div class="panel">
+  <div class="row">
+    <label for="ruleNum">Rule</label>
+    <input type="number" id="ruleNum" min="0" max="255" value="30">
+    <input type="range" id="ruleSlider" min="0" max="255" value="30">
+    <button id="randomRuleBtn">Random rule</button>
+  </div>
+  <div class="row" id="presets"></div>
+  <div class="row">
+    <label>Seed</label>
+    <button id="seedSingleBtn" class="active">Single cell</button>
+    <button id="seedRandomBtn">Random noise</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+  <div id="ruleNote"></div>
+</div>
+
+<div class="panel">
+  <div class="genome" id="genome"></div>
+</div>
+
+<canvas id="ca"></canvas>
+
+<footer>
+  Toroidal (wrap-around) edges, 181 columns. Try rule 30 (chaos — used by Mathematica as an RNG),
+  rule 90 (a perfect Sierpinski triangle from XOR), rule 110 (proven Turing-complete), or rule 184 (traffic flow:
+  cars move right unless blocked). Click any cell in the top row of the canvas to toggle it and re-run.
+</footer>
+
+<script>
+(function(){
+  const COLS = 181;
+  const ROWS = 140;
+  const CELL = 4;
+
+  const canvas = document.getElementById('ca');
+  canvas.width = COLS * CELL;
+  canvas.height = ROWS * CELL;
+  const ctx = canvas.getContext('2d');
+
+  const ruleNumInput = document.getElementById('ruleNum');
+  const ruleSlider = document.getElementById('ruleSlider');
+  const genomeEl = document.getElementById('genome');
+  const presetsEl = document.getElementById('presets');
+  const ruleNoteEl = document.getElementById('ruleNote');
+  const seedSingleBtn = document.getElementById('seedSingleBtn');
+  const seedRandomBtn = document.getElementById('seedRandomBtn');
+
+  let rule = 30;
+  let seedMode = 'single';
+  let seedRow = null;
+
+  const NOTES = {
+    30:  'Class III (chaotic). Column-30 center pixels are so unpredictable Mathematica uses this as a random-number generator.',
+    90:  'Class II (fractal). Output = left XOR right — the same recurrence as the Sierpinski triangle / Pascal’s triangle mod 2.',
+    110: 'Class IV (complex). Proven Turing-complete by Matthew Cook — it can simulate any computation via colliding "glider" patterns.',
+    184: 'Traffic-flow rule: a cell holding a "car" moves right if the space ahead is empty, exactly like single-lane traffic.',
+    54:  'Class IV cousin of 110 — also supports particle-like structures, conjectured (not proven) computationally universal.',
+    60:  'Output = left XOR center. Builds the same fractal as Pascal’s triangle mod 2, mirrored from rule 90.',
+    102: 'Output = center XOR right. Another Sierpinski-family XOR rule, mirror image of rule 60.',
+    122: 'Class III, visually noisier than 30 with occasional triangular voids.',
+    150: 'Output = left XOR center XOR right — three-way parity, producing a denser Sierpinski-like carpet.',
+    182: 'Class II, produces a neat nested triangular texture.'
+  };
+
+  function genomeBits(r){
+    // pattern index 7..0 corresponds to neighborhoods 111..000
+    const bits = [];
+    for(let p = 7; p >= 0; p--){
+      bits.push({p, left:(p>>2)&1, center:(p>>1)&1, right:p&1, out:(r>>p)&1});
+    }
+    return bits;
+  }
+
+  function buildGenomeUI(){
+    genomeEl.innerHTML = '';
+    genomeBits(rule).forEach(b => {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      tile.title = 'Click to flip the output for neighborhood ' + b.left + b.center + b.right;
+      const neigh = document.createElement('div');
+      neigh.className = 'neigh';
+      [b.left, b.center, b.right].forEach(v => {
+        const c = document.createElement('div');
+        c.className = 'cell ' + (v ? 'on' : 'off');
+        neigh.appendChild(c);
+      });
+      const arrow = document.createElement('div');
+      arrow.className = 'arrow';
+      arrow.textContent = '↓';
+      const out = document.createElement('div');
+      out.className = 'out ' + (b.out ? 'on' : 'off');
+      tile.appendChild(neigh);
+      tile.appendChild(arrow);
+      tile.appendChild(out);
+      tile.addEventListener('click', () => {
+        rule = rule ^ (1 << b.p);
+        syncRuleInputs();
+        run();
+      });
+      genomeEl.appendChild(tile);
+    });
+  }
+
+  function syncRuleInputs(){
+    ruleNumInput.value = rule;
+    ruleSlider.value = rule;
+    buildGenomeUI();
+    ruleNoteEl.textContent = NOTES[rule] || '';
+  }
+
+  function makeSeed(){
+    const row = new Uint8Array(COLS);
+    if(seedMode === 'single'){
+      row[Math.floor(COLS/2)] = 1;
+    } else {
+      for(let i = 0; i < COLS; i++) row[i] = Math.random() < 0.5 ? 1 : 0;
+    }
+    return row;
+  }
+
+  function step(row){
+    const next = new Uint8Array(COLS);
+    for(let i = 0; i < COLS; i++){
+      const l = row[(i - 1 + COLS) % COLS];
+      const c = row[i];
+      const r = row[(i + 1) % COLS];
+      const idx = (l << 2) | (c << 1) | r;
+      next[i] = (rule >> idx) & 1;
+    }
+    return next;
+  }
+
+  let grid = [];
+  let animFrame = 0;
+  let rafId = null;
+
+  function run(){
+    if(rafId) cancelAnimationFrame(rafId);
+    if(!seedRow) seedRow = makeSeed();
+    grid = [seedRow];
+    let row = seedRow;
+    for(let g = 1; g < ROWS; g++){
+      row = step(row);
+      grid.push(row);
+    }
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--tile-off').trim();
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    animFrame = 0;
+    animateDraw();
+  }
+
+  function animateDraw(){
+    const rowsPerFrame = 4;
+    const onColor = getComputedStyle(document.documentElement).getPropertyValue('--tile-on').trim();
+    ctx.fillStyle = onColor;
+    const end = Math.min(ROWS, animFrame + rowsPerFrame);
+    for(let g = animFrame; g < end; g++){
+      const row = grid[g];
+      for(let i = 0; i < COLS; i++){
+        if(row[i]) ctx.fillRect(i * CELL, g * CELL, CELL, CELL);
+      }
+    }
+    animFrame = end;
+    if(animFrame < ROWS){
+      rafId = requestAnimationFrame(animateDraw);
+    }
+  }
+
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const x = (e.clientX - rect.left) * scaleX;
+    const col = Math.floor(x / CELL);
+    if(col < 0 || col >= COLS) return;
+    if(!seedRow) seedRow = makeSeed();
+    seedRow = new Uint8Array(seedRow);
+    seedRow[col] = seedRow[col] ? 0 : 1;
+    run();
+  });
+
+  ruleNumInput.addEventListener('input', () => {
+    let v = parseInt(ruleNumInput.value, 10);
+    if(isNaN(v)) return;
+    v = Math.max(0, Math.min(255, v));
+    rule = v;
+    syncRuleInputs();
+    run();
+  });
+  ruleSlider.addEventListener('input', () => {
+    rule = parseInt(ruleSlider.value, 10);
+    syncRuleInputs();
+    run();
+  });
+  document.getElementById('randomRuleBtn').addEventListener('click', () => {
+    rule = Math.floor(Math.random() * 256);
+    syncRuleInputs();
+    run();
+  });
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    seedRow = null;
+    run();
+  });
+  seedSingleBtn.addEventListener('click', () => {
+    seedMode = 'single';
+    seedSingleBtn.classList.add('active');
+    seedRandomBtn.classList.remove('active');
+    seedRow = null;
+    run();
+  });
+  seedRandomBtn.addEventListener('click', () => {
+    seedMode = 'random';
+    seedRandomBtn.classList.add('active');
+    seedSingleBtn.classList.remove('active');
+    seedRow = null;
+    run();
+  });
+
+  [30, 54, 60, 90, 102, 110, 122, 150, 182, 184].forEach(r => {
+    const b = document.createElement('button');
+    b.className = 'preset';
+    b.textContent = r;
+    b.addEventListener('click', () => {
+      rule = r;
+      syncRuleInputs();
+      run();
+    });
+    presetsEl.appendChild(b);
+  });
+
+  syncRuleInputs();
+  run();
+})();
+</script>
+</body>
+</html>
