@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BWT Playground</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --border: #2a3038;
+    --text: #d6dce5;
+    --dim: #7d8896;
+    --accent: #58a6ff;
+    --accent2: #f2cc60;
+    --accent3: #7ee787;
+    --danger: #ff7b72;
+    --mono: "SF Mono", "Fira Code", Menlo, Consolas, "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    padding: 24px 16px 80px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .sub { color: var(--dim); font-size: 0.9rem; margin-bottom: 24px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+  }
+  .panel h2 {
+    font-size: 1rem;
+    margin: 0 0 10px;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel p.note { color: var(--dim); font-size: 0.85rem; margin: 4px 0 12px; }
+  input[type=text] {
+    width: 100%;
+    background: #0b0e13;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 1rem;
+    padding: 10px 12px;
+    border-radius: 6px;
+  }
+  input[type=text]:focus { outline: 1px solid var(--accent); }
+  .controls { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+  button {
+    background: #21262d;
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-family: var(--mono);
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .error { color: var(--danger); font-size: 0.85rem; margin-top: 8px; }
+  table { border-collapse: collapse; font-size: 0.85rem; }
+  td, th { padding: 2px 6px; white-space: pre; }
+  th { color: var(--dim); font-weight: normal; text-align: left; }
+  .idx { color: var(--dim); text-align: right; }
+  .rot-table-scroll { max-height: 260px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+  .last-char { color: var(--accent2); font-weight: bold; }
+  .sentinel { color: var(--danger); }
+  .bwt-string {
+    font-size: 1.1rem;
+    letter-spacing: 2px;
+    background: #0b0e13;
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin-top: 10px;
+    word-break: break-all;
+  }
+  .bwt-string .sentinel { color: var(--danger); }
+  .stat-row { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 10px; }
+  .stat { background: #0b0e13; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border); }
+  .stat .label { color: var(--dim); font-size: 0.75rem; display: block; }
+  .stat .value { font-size: 1.1rem; }
+  .mtf-seq, .rle-seq { font-size: 0.9rem; word-break: break-all; }
+  .mtf-seq span, .rle-seq span {
+    display: inline-block;
+    padding: 2px 5px;
+    margin: 2px;
+    border-radius: 4px;
+    background: #0b0e13;
+    border: 1px solid var(--border);
+  }
+  .mtf-seq span.zero { border-color: var(--accent3); color: var(--accent3); }
+  .recon-table { display: flex; flex-direction: column; gap: 1px; margin-top: 10px; }
+  .recon-row { display: flex; }
+  .recon-cell {
+    width: 22px; text-align: center; font-size: 0.85rem;
+    border-bottom: 1px solid #1c222b;
+  }
+  .recon-cell.filled { color: var(--text); }
+  .recon-cell.empty { color: #2a3038; }
+  .recon-cell.hit { color: var(--accent3); font-weight: bold; }
+  .decoded-box {
+    margin-top: 14px; padding: 10px 14px; border-radius: 6px;
+    background: #0b0e13; border: 1px solid var(--border);
+  }
+  .decoded-box.ok { border-color: var(--accent3); }
+  .decoded-box .verdict { font-weight: bold; }
+  .decoded-box.ok .verdict { color: var(--accent3); }
+  footer { color: var(--dim); font-size: 0.8rem; text-align: center; margin-top: 30px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🌀 Burrows–Wheeler Transform Playground</h1>
+  <p class="sub">Sort every rotation of a string, read off the last column — and watch text scramble into long runs of repeated characters. That's the trick bzip2 is built on.</p>
+
+  <div class="panel">
+    <h2>Input</h2>
+    <input type="text" id="inputText" value="abracadabra" maxlength="40" spellcheck="false">
+    <p class="note">Sentinel character <code>$</code> is appended automatically and marks the end of the string — don't type it yourself. Try "banana", "mississippi", or "the quick brown fox".</p>
+    <div class="controls">
+      <button id="runBtn">Transform ▶</button>
+      <button id="playReconBtn" disabled>▶ Animate reconstruction</button>
+      <button id="skipReconBtn" disabled>⏭ Skip to end</button>
+    </div>
+    <div id="errorMsg" class="error" style="display:none"></div>
+  </div>
+
+  <div class="panel" id="rotationsPanel" style="display:none">
+    <h2>1 · All rotations, sorted</h2>
+    <p class="note">Every cyclic rotation of <b>text + $</b>, sorted lexicographically. The <span class="last-char">last column</span> is the transform output.</p>
+    <div class="rot-table-scroll"><table id="rotTable"></table></div>
+    <div class="bwt-string" id="bwtStringOut"></div>
+  </div>
+
+  <div class="panel" id="mtfPanel" style="display:none">
+    <h2>2 · Move-to-Front encoding</h2>
+    <p class="note">Each BWT character is replaced by its position in a recency list, then bumped to the front. Repeats collapse to <span style="color:var(--accent3)">0</span> — exactly what long runs in the BWT output produce.</p>
+    <div class="mtf-seq" id="mtfSeq"></div>
+  </div>
+
+  <div class="panel" id="rlePanel" style="display:none">
+    <h2>3 · Run-length encoding of the MTF stream</h2>
+    <p class="note">Consecutive equal numbers collapse to (value×count) pairs — the payoff for all that sorting.</p>
+    <div class="rle-seq" id="rleSeq"></div>
+    <div class="stat-row">
+      <div class="stat"><span class="label">Original text length</span><span class="value" id="statOrig"></span></div>
+      <div class="stat"><span class="label">MTF stream symbols</span><span class="value" id="statMtf"></span></div>
+      <div class="stat"><span class="label">RLE pairs</span><span class="value" id="statRle"></span></div>
+    </div>
+  </div>
+
+  <div class="panel" id="reconPanel" style="display:none">
+    <h2>4 · Reconstructing the original — from the BWT string alone</h2>
+    <p class="note">Prepend the BWT string to every row, re-sort, repeat n times. The matrix rebuilds itself out of nothing but the last column, over and over.</p>
+    <div class="recon-table" id="reconTable"></div>
+    <div class="decoded-box" id="decodedBox" style="display:none">
+      <span>Decoded: </span><span id="decodedText"></span>
+      <span class="verdict" id="decodedVerdict"></span>
+    </div>
+  </div>
+
+  <footer>Pure HTML/CSS/JS, no dependencies. Open this file directly in any browser.</footer>
+</div>
+
+<script>
+const SENTINEL = "$";
+let state = null;
+
+function computeBWT(text) {
+  const s = text + SENTINEL;
+  const n = s.length;
+  const rotations = [];
+  for (let i = 0; i < n; i++) {
+    rotations.push(s.slice(i) + s.slice(0, i));
+  }
+  const sorted = rotations.slice().sort();
+  const bwt = sorted.map(r => r[r.length - 1]).join("");
+  return { sorted, bwt, n };
+}
+
+function moveToFront(bwt) {
+  // alphabet = all distinct chars appearing in bwt, in first-seen order,
+  // but MTF conventionally starts from a fixed initial ordering. We use
+  // sorted-by-codepoint initial alphabet of the chars actually present.
+  const alphabet = Array.from(new Set(bwt.split(""))).sort();
+  const list = alphabet.slice();
+  const ranks = [];
+  for (const ch of bwt) {
+    const idx = list.indexOf(ch);
+    ranks.push(idx);
+    list.splice(idx, 1);
+    list.unshift(ch);
+  }
+  return ranks;
+}
+
+function runLengthEncode(nums) {
+  const pairs = [];
+  let i = 0;
+  while (i < nums.length) {
+    let j = i;
+    while (j < nums.length && nums[j] === nums[i]) j++;
+    pairs.push([nums[i], j - i]);
+    i = j;
+  }
+  return pairs;
+}
+
+function esc(ch) {
+  if (ch === SENTINEL) return '<span class="sentinel">$</span>';
+  if (ch === " ") return "&nbsp;";
+  return ch.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderRotations(sorted) {
+  const table = document.getElementById("rotTable");
+  let rows = `<tr><th>#</th><th>rotation</th></tr>`;
+  sorted.forEach((r, i) => {
+    const chars = r.split("");
+    const body = chars.map((c, ci) =>
+      ci === chars.length - 1 ? `<span class="last-char">${esc(c)}</span>` : esc(c)
+    ).join("");
+    rows += `<tr><td class="idx">${i}</td><td>${body}</td></tr>`;
+  });
+  table.innerHTML = rows;
+
+  const bwtStr = sorted.map(r => r[r.length - 1]);
+  document.getElementById("bwtStringOut").innerHTML =
+    "BWT = " + bwtStr.map(esc).join("");
+}
+
+function renderMTF(bwt, ranks) {
+  const el = document.getElementById("mtfSeq");
+  el.innerHTML = ranks.map((r, i) =>
+    `<span class="${r === 0 ? "zero" : ""}" title="from '${bwt[i] === SENTINEL ? "$" : bwt[i]}'">${r}</span>`
+  ).join("");
+}
+
+function renderRLE(pairs, origLen, mtfLen) {
+  const el = document.getElementById("rleSeq");
+  el.innerHTML = pairs.map(([v, c]) => `<span>${v}×${c}</span>`).join("");
+  document.getElementById("statOrig").textContent = origLen;
+  document.getElementById("statMtf").textContent = mtfLen;
+  document.getElementById("statRle").textContent = pairs.length;
+}
+
+function reconstructSteps(bwt) {
+  const n = bwt.length;
+  let table = new Array(n).fill("");
+  const steps = [table.slice()];
+  for (let step = 0; step < n; step++) {
+    const next = [];
+    for (let j = 0; j < n; j++) next.push(bwt[j] + table[j]);
+    next.sort();
+    table = next;
+    steps.push(table.slice());
+  }
+  return steps; // steps[n] is the fully rebuilt sorted rotation matrix
+}
+
+function renderReconStep(step, n) {
+  const container = document.getElementById("reconTable");
+  let html = "";
+  step.forEach(row => {
+    html += `<div class="recon-row">`;
+    for (let k = 0; k < n; k++) {
+      const ch = row[k];
+      if (ch === undefined) {
+        html += `<div class="recon-cell empty">·</div>`;
+      } else {
+        const cls = ch === SENTINEL ? "hit" : "filled";
+        const disp = ch === SENTINEL ? "$" : (ch === " " ? "&nbsp;" : ch);
+        html += `<div class="recon-cell ${cls}">${disp}</div>`;
+      }
+    }
+    html += `</div>`;
+  });
+  container.innerHTML = html;
+}
+
+function finalizeDecoded(finalTable, original) {
+  const row = finalTable.find(r => r.endsWith(SENTINEL));
+  const decoded = row ? row.slice(0, -1) : "(not found)";
+  const box = document.getElementById("decodedBox");
+  const ok = decoded === original;
+  box.style.display = "block";
+  box.classList.toggle("ok", ok);
+  document.getElementById("decodedText").textContent = `"${decoded}"`;
+  document.getElementById("decodedVerdict").textContent = ok ? "✓ matches original" : "✗ mismatch";
+}
+
+function showPanels() {
+  ["rotationsPanel", "mtfPanel", "rlePanel", "reconPanel"].forEach(id => {
+    document.getElementById(id).style.display = "block";
+  });
+}
+
+function run() {
+  const raw = document.getElementById("inputText").value;
+  const errEl = document.getElementById("errorMsg");
+  errEl.style.display = "none";
+
+  if (raw.length === 0) {
+    errEl.textContent = "Type some text first.";
+    errEl.style.display = "block";
+    return;
+  }
+  if (raw.includes(SENTINEL)) {
+    errEl.textContent = `Please don't use "${SENTINEL}" — it's reserved as the end-of-string sentinel.`;
+    errEl.style.display = "block";
+    return;
+  }
+
+  const { sorted, bwt, n } = computeBWT(raw);
+  renderRotations(sorted);
+
+  const ranks = moveToFront(bwt);
+  renderMTF(bwt, ranks);
+
+  const pairs = runLengthEncode(ranks);
+  renderRLE(pairs, raw.length, ranks.length);
+
+  const steps = reconstructSteps(bwt);
+  state = { bwt, n, steps, original: raw, stepIndex: 0 };
+
+  document.getElementById("reconTable").innerHTML = "";
+  document.getElementById("decodedBox").style.display = "none";
+  renderReconStep(steps[0], n);
+
+  showPanels();
+  document.getElementById("playReconBtn").disabled = false;
+  document.getElementById("skipReconBtn").disabled = false;
+}
+
+let playTimer = null;
+function playRecon() {
+  if (!state) return;
+  clearInterval(playTimer);
+  document.getElementById("playReconBtn").disabled = true;
+  state.stepIndex = 0;
+  playTimer = setInterval(() => {
+    state.stepIndex++;
+    renderReconStep(state.steps[state.stepIndex], state.n);
+    if (state.stepIndex >= state.n) {
+      clearInterval(playTimer);
+      finalizeDecoded(state.steps[state.n], state.original);
+      document.getElementById("playReconBtn").disabled = false;
+    }
+  }, Math.max(120, Math.min(500, 2500 / state.n)));
+}
+
+function skipRecon() {
+  if (!state) return;
+  clearInterval(playTimer);
+  state.stepIndex = state.n;
+  renderReconStep(state.steps[state.n], state.n);
+  finalizeDecoded(state.steps[state.n], state.original);
+  document.getElementById("playReconBtn").disabled = false;
+}
+
+document.getElementById("runBtn").addEventListener("click", run);
+document.getElementById("inputText").addEventListener("keydown", e => {
+  if (e.key === "Enter") run();
+});
+document.getElementById("playReconBtn").addEventListener("click", playRecon);
+document.getElementById("skipReconBtn").addEventListener("click", skipRecon);
+
+run();
+</script>
+</body>
+</html>
