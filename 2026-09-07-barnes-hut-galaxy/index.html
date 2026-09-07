@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Barnes-Hut Galaxy</title>
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #05060a;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: #cfd6e6;
+  }
+  canvas {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    cursor: crosshair;
+  }
+  #panel {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    background: rgba(10, 12, 20, 0.72);
+    border: 1px solid rgba(140, 160, 220, 0.25);
+    border-radius: 10px;
+    padding: 12px 16px;
+    max-width: 300px;
+    backdrop-filter: blur(6px);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  #panel h1 {
+    font-size: 15px;
+    margin: 0 0 6px 0;
+    color: #fff;
+    letter-spacing: 0.02em;
+  }
+  #panel p.hint {
+    margin: 0 0 10px 0;
+    color: #9aa4bd;
+    font-size: 12px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 6px 0;
+  }
+  .row label {
+    flex: 1;
+    color: #b6bfd6;
+  }
+  .row input[type=range] {
+    width: 130px;
+  }
+  .row .val {
+    width: 34px;
+    text-align: right;
+    color: #8fd0ff;
+    font-variant-numeric: tabular-nums;
+  }
+  .buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  button {
+    background: #1b2036;
+    border: 1px solid rgba(140, 160, 220, 0.35);
+    color: #dbe2f5;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  button:hover {
+    background: #262c48;
+  }
+  #stats {
+    position: absolute;
+    bottom: 10px;
+    left: 14px;
+    font-size: 11px;
+    color: #6b7590;
+    font-variant-numeric: tabular-nums;
+  }
+  #toggle {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    background: rgba(10, 12, 20, 0.72);
+    border: 1px solid rgba(140, 160, 220, 0.25);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #cfd6e6;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="panel">
+  <h1>Barnes-Hut Galaxy</h1>
+  <p class="hint">Click and drag anywhere to fling in a new star. The quadtree lets thousands of gravity pairs get approximated in O(n log n) instead of O(n²).</p>
+  <div class="row">
+    <label for="stars">Stars</label>
+    <input type="range" id="stars" min="100" max="3000" step="50" value="900">
+    <span class="val" id="starsVal">900</span>
+  </div>
+  <div class="row">
+    <label for="theta">Theta (accuracy&#8596;speed)</label>
+    <input type="range" id="theta" min="0.1" max="1.5" step="0.05" value="0.75">
+    <span class="val" id="thetaVal">0.75</span>
+  </div>
+  <div class="row">
+    <label for="quadCheck">Show quadtree</label>
+    <input type="checkbox" id="quadCheck">
+  </div>
+  <div class="row">
+    <label for="trailCheck">Star trails</label>
+    <input type="checkbox" id="trailCheck" checked>
+  </div>
+  <div class="buttons">
+    <button id="pauseBtn">Pause</button>
+    <button id="resetBtn">New Galaxy</button>
+  </div>
+</div>
+
+<button id="toggle">Hide panel</button>
+<div id="stats"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const panel = document.getElementById("panel");
+  const toggleBtn = document.getElementById("toggle");
+  const statsEl = document.getElementById("stats");
+
+  const starsSlider = document.getElementById("stars");
+  const starsVal = document.getElementById("starsVal");
+  const thetaSlider = document.getElementById("theta");
+  const thetaVal = document.getElementById("thetaVal");
+  const quadCheck = document.getElementById("quadCheck");
+  const trailCheck = document.getElementById("trailCheck");
+  const pauseBtn = document.getElementById("pauseBtn");
+  const resetBtn = document.getElementById("resetBtn");
+
+  let W, H, DPR;
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener("resize", resize);
+
+  // ---------- Physics ----------
+  const G = 0.9;
+  const SOFTEN = 18; // softening length to avoid singularities at close range
+  const CENTER_MASS = 26000;
+
+  let bodies = [];
+  let theta = parseFloat(thetaSlider.value);
+  let showQuad = false;
+  let showTrails = true;
+  let paused = false;
+
+  function makeGalaxy(n) {
+    const list = [];
+    const cx = W / 2, cy = H / 2;
+    // central black hole, fixed
+    list.push({ x: cx, y: cy, vx: 0, vy: 0, mass: CENTER_MASS, fixed: true, hue: 48 });
+
+    const maxR = Math.min(W, H) * 0.42;
+    for (let i = 0; i < n; i++) {
+      // sample radius biased toward a disk with some central concentration
+      const r = 22 + maxR * Math.sqrt(Math.random()) ;
+      const ang = Math.random() * Math.PI * 2;
+      const x = cx + Math.cos(ang) * r;
+      const y = cy + Math.sin(ang) * r;
+      // circular orbital velocity around central mass, plus small radial jitter
+      const vCirc = Math.sqrt((G * CENTER_MASS) / (r + SOFTEN));
+      const tangentAng = ang + Math.PI / 2;
+      const jitter = 0.94 + Math.random() * 0.12;
+      const vx = Math.cos(tangentAng) * vCirc * jitter;
+      const vy = Math.sin(tangentAng) * vCirc * jitter;
+      const mass = 0.6 + Math.random() * 1.6;
+      const hue = 190 + Math.random() * 120; // blue -> violet -> pink range
+      list.push({ x, y, vx, vy, mass, fixed: false, hue });
+    }
+    return list;
+  }
+
+  // ---------- Quadtree ----------
+  // Node: {x, y, size, mass, comX, comY, count, body, children:[nw,ne,sw,se]|null}
+  function newNode(x, y, size) {
+    return { x, y, size, mass: 0, comX: 0, comY: 0, count: 0, body: null, children: null };
+  }
+
+  function subdivide(node) {
+    const h = node.size / 2;
+    node.children = [
+      newNode(node.x, node.y, h),           // nw
+      newNode(node.x + h, node.y, h),       // ne
+      newNode(node.x, node.y + h, h),       // sw
+      newNode(node.x + h, node.y + h, h),   // se
+    ];
+  }
+
+  function quadrantFor(node, b) {
+    const h = node.size / 2;
+    const east = b.x >= node.x + h;
+    const south = b.y >= node.y + h;
+    if (!east && !south) return 0;
+    if (east && !south) return 1;
+    if (!east && south) return 2;
+    return 3;
+  }
+
+  function insert(node, b, depth) {
+    if (node.count === 0) {
+      node.body = b;
+      node.count = 1;
+      node.mass = b.mass;
+      node.comX = b.x;
+      node.comY = b.y;
+      return;
+    }
+
+    // accumulate aggregate mass/COM before descending
+    const totalMass = node.mass + b.mass;
+    node.comX = (node.comX * node.mass + b.x * b.mass) / totalMass;
+    node.comY = (node.comY * node.mass + b.y * b.mass) / totalMass;
+    node.mass = totalMass;
+    node.count++;
+
+    if (depth > 40) return; // safety valve for coincident points
+
+    if (node.children === null) {
+      subdivide(node);
+      const existing = node.body;
+      node.body = null;
+      if (existing) {
+        insert(node.children[quadrantFor(node, existing)], existing, depth + 1);
+      }
+    }
+    insert(node.children[quadrantFor(node, b)], b, depth + 1);
+  }
+
+  function buildTree(list) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const b of list) {
+      if (b.x < minX) minX = b.x;
+      if (b.y < minY) minY = b.y;
+      if (b.x > maxX) maxX = b.x;
+      if (b.y > maxY) maxY = b.y;
+    }
+    const pad = 40;
+    minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+    const size = Math.max(maxX - minX, maxY - minY, 10);
+    const root = newNode(minX, minY, size);
+    for (const b of list) insert(root, b, 0);
+    return root;
+  }
+
+  function applyForce(node, b, ax_ay) {
+    if (node.count === 0 || (node.count === 1 && node.body === b)) return;
+    const dx = node.comX - b.x;
+    const dy = node.comY - b.y;
+    const distSq = dx * dx + dy * dy + SOFTEN * SOFTEN;
+    const dist = Math.sqrt(distSq);
+
+    const isLeaf = node.children === null;
+    if (isLeaf || node.size / dist < theta) {
+      const f = (G * node.mass) / (distSq * dist);
+      ax_ay[0] += f * dx;
+      ax_ay[1] += f * dy;
+      return;
+    }
+    for (const child of node.children) {
+      if (child.count > 0) applyForce(child, b, ax_ay);
+    }
+  }
+
+  function step(dt) {
+    const root = buildTree(bodies);
+    const tmp = [0, 0];
+    for (const b of bodies) {
+      if (b.fixed) continue;
+      tmp[0] = 0; tmp[1] = 0;
+      applyForce(root, b, tmp);
+      b.vx += tmp[0] * dt;
+      b.vy += tmp[1] * dt;
+    }
+    for (const b of bodies) {
+      if (b.fixed) continue;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+    }
+    return root;
+  }
+
+  function drawQuad(node) {
+    if (node.count === 0) return;
+    ctx.strokeRect(node.x, node.y, node.size, node.size);
+    if (node.children) {
+      for (const c of node.children) drawQuad(c);
+    }
+  }
+
+  // ---------- Rendering ----------
+  function render(root) {
+    if (showTrails) {
+      ctx.fillStyle = "rgba(5, 6, 10, 0.16)";
+      ctx.fillRect(0, 0, W, H);
+    } else {
+      ctx.fillStyle = "#05060a";
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    if (showQuad) {
+      ctx.strokeStyle = "rgba(110, 140, 220, 0.25)";
+      ctx.lineWidth = 1;
+      drawQuad(root);
+    }
+
+    for (const b of bodies) {
+      if (b.fixed) {
+        const grad = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, 16);
+        grad.addColorStop(0, "rgba(255, 235, 180, 1)");
+        grad.addColorStop(1, "rgba(255, 235, 180, 0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fff8e0";
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
+      const speed = Math.hypot(b.vx, b.vy);
+      const light = Math.min(80, 45 + speed * 4);
+      ctx.fillStyle = `hsl(${b.hue}, 85%, ${light}%)`;
+      ctx.fillRect(b.x, b.y, 1.6, 1.6);
+    }
+  }
+
+  // ---------- Drag-to-launch interaction ----------
+  let dragStart = null;
+  canvas.addEventListener("mousedown", (e) => {
+    dragStart = { x: e.clientX, y: e.clientY };
+  });
+  canvas.addEventListener("mouseup", (e) => {
+    if (!dragStart) return;
+    const dx = dragStart.x - e.clientX;
+    const dy = dragStart.y - e.clientY;
+    bodies.push({
+      x: dragStart.x,
+      y: dragStart.y,
+      vx: dx * 0.12,
+      vy: dy * 0.12,
+      mass: 4 + Math.random() * 4,
+      fixed: false,
+      hue: 30 + Math.random() * 40,
+    });
+    dragStart = null;
+  });
+  canvas.addEventListener("mouseleave", () => { dragStart = null; });
+
+  // touch support (tap-and-drag)
+  canvas.addEventListener("touchstart", (e) => {
+    const t = e.touches[0];
+    dragStart = { x: t.clientX, y: t.clientY };
+  }, { passive: true });
+  canvas.addEventListener("touchend", (e) => {
+    if (!dragStart) return;
+    const t = e.changedTouches[0];
+    const dx = dragStart.x - t.clientX;
+    const dy = dragStart.y - t.clientY;
+    bodies.push({
+      x: dragStart.x,
+      y: dragStart.y,
+      vx: dx * 0.12,
+      vy: dy * 0.12,
+      mass: 4 + Math.random() * 4,
+      fixed: false,
+      hue: 30 + Math.random() * 40,
+    });
+    dragStart = null;
+  });
+
+  // ---------- Controls ----------
+  starsSlider.addEventListener("input", () => { starsVal.textContent = starsSlider.value; });
+  thetaSlider.addEventListener("input", () => {
+    theta = parseFloat(thetaSlider.value);
+    thetaVal.textContent = theta.toFixed(2);
+  });
+  quadCheck.addEventListener("change", () => { showQuad = quadCheck.checked; });
+  trailCheck.addEventListener("change", () => { showTrails = trailCheck.checked; });
+  pauseBtn.addEventListener("click", () => {
+    paused = !paused;
+    pauseBtn.textContent = paused ? "Resume" : "Pause";
+  });
+  resetBtn.addEventListener("click", () => {
+    bodies = makeGalaxy(parseInt(starsSlider.value, 10));
+  });
+  toggleBtn.addEventListener("click", () => {
+    const hidden = panel.style.display === "none";
+    panel.style.display = hidden ? "block" : "none";
+    toggleBtn.textContent = hidden ? "Hide panel" : "Show panel";
+  });
+
+  // ---------- Main loop ----------
+  let lastTime = performance.now();
+  let frameCount = 0;
+  let fpsAccum = 0;
+  let fps = 0;
+
+  function loop(now) {
+    const dt = paused ? 0 : 1;
+    let root;
+    if (!paused) {
+      root = step(dt);
+    } else {
+      root = buildTree(bodies);
+    }
+    render(root);
+
+    const elapsed = now - lastTime;
+    lastTime = now;
+    fpsAccum += 1000 / Math.max(elapsed, 1);
+    frameCount++;
+    if (frameCount >= 20) {
+      fps = fpsAccum / frameCount;
+      fpsAccum = 0;
+      frameCount = 0;
+    }
+    statsEl.textContent = `${bodies.length} bodies · ${fps ? fps.toFixed(0) : "--"} fps · theta ${theta.toFixed(2)}`;
+
+    requestAnimationFrame(loop);
+  }
+
+  resize();
+  bodies = makeGalaxy(parseInt(starsSlider.value, 10));
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
