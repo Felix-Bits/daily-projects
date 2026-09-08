@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Collatz Tree</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0d14;
+    --panel: #12151f;
+    --border: #262b3a;
+    --text: #e7e9f0;
+    --muted: #8b90a3;
+    --accent: #6ee7ff;
+    --accent2: #ff6ec7;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: "SF Mono", "JetBrains Mono", Consolas, Menlo, monospace;
+    overflow: hidden;
+  }
+  #canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+
+  #panel {
+    position: fixed; top: 14px; left: 14px; width: 300px;
+    background: rgba(18,21,31,0.92); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; backdrop-filter: blur(6px);
+  }
+  #panel h1 {
+    font-size: 15px; margin: 0 0 4px; letter-spacing: 0.02em;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  #panel p.sub { margin: 0 0 12px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .row { margin-bottom: 10px; }
+  .row label { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .row input[type=range] { width: 100%; accent-color: var(--accent); }
+  .row input[type=text] {
+    width: 100%; background: #0b0d14; border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 12px;
+  }
+  #stats { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  #stats b { color: var(--text); }
+
+  #info {
+    position: fixed; top: 14px; right: 14px; width: 320px; max-height: calc(100vh - 28px);
+    overflow-y: auto; background: rgba(18,21,31,0.92); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; backdrop-filter: blur(6px); font-size: 12px;
+  }
+  #info h2 { font-size: 13px; margin: 0 0 8px; color: var(--accent); }
+  #info .placeholder { color: var(--muted); line-height: 1.6; }
+  #info .num { font-size: 22px; color: var(--accent2); margin-bottom: 2px; }
+  #info .meta { color: var(--muted); margin-bottom: 10px; }
+  #seq { word-break: break-all; line-height: 1.7; color: var(--text); }
+  #seq .arrow { color: var(--muted); }
+
+  #legend {
+    position: fixed; bottom: 14px; left: 14px; font-size: 10px; color: var(--muted);
+    display: flex; align-items: center; gap: 6px;
+  }
+  #legend .grad { width: 120px; height: 8px; border-radius: 4px;
+    background: linear-gradient(90deg, hsl(190,90%,65%), hsl(320,90%,65%)); }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="panel">
+  <h1>Collatz Tree</h1>
+  <p class="sub">Every positive integer, one branch each, all merging toward 1. Built by running the Collatz rule <b>backwards</b> from 1: since every number has exactly one forward successor, the reverse graph is a true tree &mdash; no cycles, no merges.</p>
+  <div class="row">
+    <label><span>Depth</span><span id="depthVal"></span></label>
+    <input type="range" id="depth" min="6" max="22" value="15" step="1">
+  </div>
+  <div class="row">
+    <label><span>Jump to number</span></label>
+    <input type="text" id="jump" placeholder="e.g. 27, then Enter">
+  </div>
+  <div id="stats"></div>
+</div>
+
+<div id="info">
+  <h2>Trajectory</h2>
+  <div class="placeholder" id="infoBody">Click any node, or type a number and press Enter. Each node's path back to the root <i>is</i> its Collatz sequence &mdash; odd steps zig outward via 3n+1, even steps zag inward via n/2.</div>
+</div>
+
+<div id="legend"><span>shallow</span><span class="grad"></span><span>deep</span></div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const depthSlider = document.getElementById('depth');
+  const depthVal = document.getElementById('depthVal');
+  const statsEl = document.getElementById('stats');
+  const jumpInput = document.getElementById('jump');
+  const infoBody = document.getElementById('infoBody');
+
+  const MAX_NODES = 9000;
+
+  let tree = null;      // { root, byNumber: Map }
+  let maxDepthActual = 0;
+  let selected = null;  // node object
+  let growth = 0;       // 0..1 animation progress
+  let growthStart = 0;
+
+  function resize() {
+    canvas.width = innerWidth * devicePixelRatio;
+    canvas.height = innerHeight * devicePixelRatio;
+    canvas.style.width = innerWidth + 'px';
+    canvas.style.height = innerHeight + 'px';
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  }
+  addEventListener('resize', () => { resize(); draw(); });
+
+  // ---- tree construction (reverse Collatz BFS from 1) ----
+  function buildTree(maxDepth, maxNodes) {
+    const root = { number: 1, depth: 0, parent: null, children: [] };
+    const byNumber = new Map([[1, root]]);
+    const queue = [root];
+    let count = 1;
+    let deepest = 0;
+    while (queue.length) {
+      const node = queue.shift();
+      if (node.depth >= maxDepth) continue;
+      const n = node.number;
+      const candidates = [2 * n];
+      if ((n - 1) % 3 === 0) {
+        const c2 = (n - 1) / 3;
+        if (c2 > 1 && c2 % 2 === 1) candidates.push(c2);
+      }
+      for (const c of candidates) {
+        if (byNumber.has(c) || count >= maxNodes) continue;
+        const child = { number: c, depth: node.depth + 1, parent: node, children: [] };
+        byNumber.set(c, child);
+        node.children.push(child);
+        queue.push(child);
+        count++;
+        deepest = Math.max(deepest, child.depth);
+      }
+    }
+    return { root, byNumber, count, deepest };
+  }
+
+  function computeWeights(node) {
+    if (node.children.length === 0) { node.weight = 1; return 1; }
+    let w = 0;
+    for (const c of node.children) w += computeWeights(c);
+    node.weight = w;
+    return w;
+  }
+
+  function assignAngles(node, a0, a1) {
+    node.angle = (a0 + a1) / 2;
+    let cursor = a0;
+    for (const c of node.children) {
+      const span = (a1 - a0) * (c.weight / node.weight);
+      assignAngles(c, cursor, cursor + span);
+      cursor += span;
+    }
+  }
+
+  function rebuild() {
+    const maxDepth = +depthSlider.value;
+    depthVal.textContent = maxDepth + ' levels';
+    tree = buildTree(maxDepth, MAX_NODES);
+    computeWeights(tree.root);
+    // full circle minus a small gap so the seam is visible, like a spiral gate
+    assignAngles(tree.root, -Math.PI * 0.94, Math.PI * 1.06);
+    maxDepthActual = tree.deepest;
+    statsEl.innerHTML = `<b>${tree.count.toLocaleString()}</b> numbers charted &middot; deepest chain <b>${maxDepthActual}</b> steps` +
+      (tree.count >= MAX_NODES ? ` <br><span style="color:#ff6ec7">node cap reached &mdash; some branches truncated</span>` : '');
+    growthStart = performance.now();
+    growth = 0;
+    selected = null;
+    infoBody.parentElement.querySelector('.num, .meta, #seq')?.remove?.();
+    resetInfo();
+    requestAnimationFrame(animate);
+  }
+
+  function resetInfo() {
+    infoBody.style.display = '';
+    infoBody.textContent = 'Click any node, or type a number and press Enter. Each node\'s path back to the root is its Collatz sequence — odd steps zig outward via 3n+1, even steps zag inward via n/2.';
+  }
+
+  // ---- geometry ----
+  function radiusStep() {
+    return Math.min(innerWidth, innerHeight) * 0.42 / Math.max(6, depthSlider.value);
+  }
+  function nodePos(node, t) {
+    const r = node.depth * radiusStep() * t;
+    const cx = innerWidth / 2, cy = innerHeight / 2;
+    return { x: cx + r * Math.cos(node.angle), y: cy + r * Math.sin(node.angle) };
+  }
+
+  function colorForDepth(d) {
+    const hue = 190 + (320 - 190) * Math.min(1, d / Math.max(1, maxDepthActual));
+    return `hsl(${hue}, 90%, 65%)`;
+  }
+
+  // ---- drawing ----
+  function draw() {
+    ctx.fillStyle = '#0b0d14';
+    ctx.fillRect(0, 0, innerWidth, innerHeight);
+    if (!tree) return;
+
+    const t = growth;
+    // edges
+    ctx.lineWidth = 1;
+    (function walk(node) {
+      for (const c of node.children) {
+        const p0 = nodePos(node, t), p1 = nodePos(c, t);
+        ctx.strokeStyle = colorForDepth(c.depth);
+        ctx.globalAlpha = 0.38;
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
+        ctx.stroke();
+        walk(c);
+      }
+    })(tree.root);
+    ctx.globalAlpha = 1;
+
+    // highlighted path
+    if (selected) {
+      let n = selected;
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#ffffff';
+      ctx.shadowColor = '#6ee7ff';
+      ctx.shadowBlur = 8;
+      while (n.parent) {
+        const p0 = nodePos(n.parent, t), p1 = nodePos(n, t);
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
+        ctx.stroke();
+        n = n.parent;
+      }
+      ctx.shadowBlur = 0;
+    }
+
+    // root
+    const rootPos = nodePos(tree.root, t);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(rootPos.x, rootPos.y, 4, 0, 7);
+    ctx.fill();
+
+    if (selected) {
+      const p = nodePos(selected, t);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 6, 0, 7);
+      ctx.stroke();
+    }
+  }
+
+  function animate(now) {
+    const elapsed = now - growthStart;
+    growth = Math.min(1, elapsed / 1400);
+    growth = 1 - Math.pow(1 - growth, 3); // ease-out cubic
+    draw();
+    if (growth < 1) requestAnimationFrame(animate);
+  }
+
+  // ---- interaction ----
+  function findNearest(px, py) {
+    let best = null, bestD = 22 * 22; // pixel threshold
+    (function walk(node) {
+      const p = nodePos(node, growth);
+      const dx = p.x - px, dy = p.y - py;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = node; }
+      for (const c of node.children) walk(c);
+    })(tree.root);
+    return best;
+  }
+
+  function pathToRoot(node) {
+    const seq = [];
+    let n = node;
+    while (n) { seq.push(n.number); n = n.parent; }
+    return seq; // node -> ... -> 1
+  }
+
+  function collatzSequence(start, cap) {
+    const seq = [start];
+    let n = start;
+    let guard = 0;
+    while (n !== 1 && guard < cap) {
+      n = n % 2 === 0 ? n / 2 : 3 * n + 1;
+      seq.push(n);
+      guard++;
+    }
+    return seq;
+  }
+
+  function showNode(node) {
+    selected = node;
+    const seq = pathToRoot(node);
+    const steps = seq.length - 1;
+    const seqHtml = seq.map(n => n.toLocaleString()).join('<span class="arrow"> &rarr; </span>');
+    infoBody.style.display = 'none';
+    let extra = document.getElementById('dynInfo');
+    if (extra) extra.remove();
+    extra = document.createElement('div');
+    extra.id = 'dynInfo';
+    extra.innerHTML = `<div class="num">${node.number.toLocaleString()}</div>
+      <div class="meta">stopping time: <b style="color:#e7e9f0">${steps}</b> steps to reach 1</div>
+      <div id="seq">${seqHtml}</div>`;
+    infoBody.parentElement.appendChild(extra);
+    draw();
+  }
+
+  function showOffTreeNumber(num) {
+    const seq = collatzSequence(num, 100000);
+    selected = null;
+    infoBody.style.display = 'none';
+    let extra = document.getElementById('dynInfo');
+    if (extra) extra.remove();
+    extra = document.createElement('div');
+    extra.id = 'dynInfo';
+    const truncated = seq.length > 60;
+    const shown = truncated ? seq.slice(0, 30).concat(['…']).concat(seq.slice(-10)) : seq;
+    const seqHtml = shown.map(n => n === '…' ? '<span class="arrow">…</span>' : n.toLocaleString()).join('<span class="arrow"> &rarr; </span>');
+    extra.innerHTML = `<div class="num">${num.toLocaleString()}</div>
+      <div class="meta">stopping time: <b style="color:#e7e9f0">${seq.length - 1}</b> steps &middot; <span style="color:#ff6ec7">off-tree</span> &mdash; computed directly, not charted at this depth</div>
+      <div id="seq">${seqHtml}</div>`;
+    infoBody.parentElement.appendChild(extra);
+    draw();
+  }
+
+  canvas.addEventListener('click', (e) => {
+    if (!tree) return;
+    const node = findNearest(e.clientX, e.clientY);
+    if (node) showNode(node);
+  });
+
+  jumpInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const num = parseInt(jumpInput.value.trim(), 10);
+    if (!Number.isFinite(num) || num < 1) return;
+    if (tree.byNumber.has(num)) showNode(tree.byNumber.get(num));
+    else showOffTreeNumber(num);
+  });
+
+  depthSlider.addEventListener('input', rebuild);
+
+  resize();
+  rebuild();
+})();
+</script>
+</body>
+</html>
