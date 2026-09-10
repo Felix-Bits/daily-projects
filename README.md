@@ -7,6 +7,7 @@
 ## 项目列表
 
 <!-- PROJECT_LIST_START -->
+- [2026-09-10 — Skip List Explorer](2026-09-10-skiplist-explorer/) — pure-stdlib Python terminal toy that builds a randomized skip list from coin-flip lane heights and animates a real search hopping across its express lanes, level by level, in ANSI color
 - [2026-09-09 — Newton Fractal Explorer](2026-09-09-newton-fractal/) — terminal ANSI renderer that runs Newton's root-finding method from every point in the complex plane at once, coloring each pixel by which root of z^n-1 it converges to and shading by how fast, revealing the fractal boundary between basins of attraction with an animated zoom
 - [2026-09-08 — Collatz Tree](2026-09-08-collatz-tree/) — canvas radial tree built by running the Collatz rule backwards from 1 (every number has exactly one forward successor, so the reverse graph is a true tree, no merges), angularly laid out by descendant count so it grows like coral, with click-to-trace showing any node's full 3n+1/n÷2 trajectory and stopping time
 - [2026-09-07 — Barnes-Hut Galaxy](2026-09-07-barnes-hut-galaxy/) — canvas N-body simulation of a spiral galaxy where a live quadtree approximates gravity in O(n log n) instead of O(n²), with the subdivision itself drawn on screen, a theta slider to trade accuracy for speed, and click-and-drag to fling new stars into orbit
